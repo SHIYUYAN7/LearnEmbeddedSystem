@@ -14,6 +14,9 @@
 #define I2S_WS_PIN   6  // WS (LRCLK)
 #define I2S_SD_PIN   4  // SD (DOUT) also connecting a 1k resistor between sd and pin 4
 
+// Set sampling rate to 16000 Hz
+#define SAMPLE_RATE 16000
+
 SdFs sd;      // SD card
 FsFile file;  // Recording file
 
@@ -21,7 +24,7 @@ I2SRecord mi;
 const int record_time = 10;  // Seconds
 const char filename[] = "/my.wav";
 
-const int waveDataSize = record_time * 88200;
+const int waveDataSize = record_time * SAMPLE_RATE * 2;
 int32_t communicationData[1024];     // Receive buffer
 char partWavData[1024];
 
@@ -43,13 +46,13 @@ void setup() {
     return;
   }
 
-  auto header = CreateWaveHeader(1, 44100, 16);
+  auto header = CreateWaveHeader(1, SAMPLE_RATE, 16);
   header.riffSize = waveDataSize + 44 - 8;
   header.dataSize = waveDataSize;
   file.write(&header, 44);
 
   // Initialize I²S for INMP441
-  if (!mi.InitInput(I2S_BITS_PER_SAMPLE_32BIT, I2S_SCK_PIN, I2S_WS_PIN, I2S_SD_PIN)) {
+  if (!mi.InitInput(I2S_BITS_PER_SAMPLE_32BIT, I2S_SCK_PIN, I2S_WS_PIN, I2S_SD_PIN, SAMPLE_RATE)) {
     Serial.println("Init I2S error");
     return;
   }

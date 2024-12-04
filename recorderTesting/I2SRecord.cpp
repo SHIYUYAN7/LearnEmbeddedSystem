@@ -3,11 +3,12 @@
 bool I2SRecord::InitInput(i2s_bits_per_sample_t BPS,
                       int bckPin,
                       int wsPin,
-                      int dataInPin)
+                      int dataInPin,
+                      int sampleRate)
 {
   i2s_config_t i2s_config = {
     .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
-    .sample_rate = SAMPLE_RATE,
+    .sample_rate = sampleRate,
     .bits_per_sample = BPS,
     .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,
     .communication_format = (i2s_comm_format_t)(I2S_COMM_FORMAT_I2S | I2S_COMM_FORMAT_I2S_MSB),

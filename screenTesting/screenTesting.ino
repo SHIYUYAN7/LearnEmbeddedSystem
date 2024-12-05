@@ -19,13 +19,17 @@
 #include "Adafruit_ILI9341.h"
 
 // For the Adafruit shield, these are the default.
-#define TFT_DC 9
+#define TFT_DC 14
 #define TFT_CS 10
+#define TFT_MOSI 11
+#define TFT_CLK 12
+#define TFT_RST 9
+#define TFT_MISO 13
 
 // Use hardware SPI (on Uno, #13, #12, #11) and the above for CS/DC
-Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC);
+//Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC);
 // If using the breakout, change pins as desired
-//Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_MOSI, TFT_CLK, TFT_RST, TFT_MISO);
+Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_MOSI, TFT_CLK, TFT_RST, TFT_MISO);
 
 void setup() {
   Serial.begin(9600);
@@ -64,7 +68,6 @@ unsigned long showScreenInfo() {
   // split line
   tft.drawFastHLine(0, 40, 320, ILI9341_YELLOW);
 
-  // 显示事项
   // tft.setCursor(10, 60);
   // tft.setTextColor(ILI9341_GREEN);
   // tft.setTextSize(3);

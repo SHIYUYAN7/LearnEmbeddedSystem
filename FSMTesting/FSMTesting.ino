@@ -97,7 +97,6 @@ const char* libre_translate_cert = "-----BEGIN CERTIFICATE-----\n"
 "-----END CERTIFICATE-----\n";
 
 WiFiClientSecure client;
-// HTTPClient http;
 const char* ssid = "Brown-Guest";
 
 // TFT Screen
@@ -109,11 +108,11 @@ const char* ssid = "Brown-Guest";
 #define TFT_MISO  13
 #define TFT_SD_CS 8
 
-// Define SD card SPI pins
-#define SD_CS_PIN   10
-#define SD_SCK_PIN  12
-#define SD_MOSI_PIN 11
-#define SD_MISO_PIN 13
+// // Define SD card SPI pins
+// #define SD_CS_PIN   10
+// #define SD_SCK_PIN  12
+// #define SD_MOSI_PIN 11
+// #define SD_MISO_PIN 13
 
 // Define INMP441 I²S pins
 #define I2S_SCK_PIN   5  // BCLK
@@ -154,22 +153,27 @@ typedef struct {
   String temperature;
 } ShowText;
 
-// // Mapping of states to translations in different languages
-// std::map<State, std::map<String, String>> stateTranslations = {
-//     {STATE_INIT, {{"en", "Init"}, {"es", "Inicio"}, {"fr", "Initialiser"}}},
-//     {STATE_STANDBY, {{"en", "Standby"}, {"es", "Espera"}, {"fr", "En attente"}}},
-//     {STATE_RECORDING, {{"en", "Recording"}, {"es", "Grabando"}, {"fr", "Enregistrement"}}},
-//     {STATE_VOICE_RECOGNITION, {{"en", "Voice Recognition"}, {"es", "Reconocimiento de Voz"}, {"fr", "Reconnaissance Vocale"}}},
-//     {STATE_EXECUTE_COMMAND, {{"en", "Execute Command"}, {"es", "Ejecutar Comando"}, {"fr", "Exécuter la Commande"}}},
-//     {STATE_UNRECOGNIZED_COMMAND, {{"en", "Unrecognized Command"}, {"es", "Comando No Reconocido"}, {"fr", "Commande Non Reconnaissance"}}},
-//     {STATE_RESET, {{"en", "Reset"}, {"es", "Reiniciar"}, {"fr", "Réinitialiser"}}},
-//     {STATE_TRANSLATING, {{"en", "Translating"}, {"es", "Traduciendo"}, {"fr", "Traduction"}}}
-// };
+// Mapping of states to translations in different languages
+std::map<State, std::map<String, String>> stateTranslations = {
+    {STATE_INIT, {{"en", "Init"}, {"es", "Inicio"}, {"fr", "Initialiser"}}},
+    {STATE_STANDBY, {{"en", "Hello"}, {"es", "Hola"}, {"fr", "Bonjour"}}},
+    {STATE_RECORDING, {{"en", "Recording"}, {"es", "Grabando"}, {"fr", "Enregistrement"}}},
+    {STATE_VOICE_RECOGNITION, {{"en", "Voice Recognition"}, {"es", "Reconocimiento de Voz"}, {"fr", "Reconnaissance Vocale"}}},
+    {STATE_EXECUTE_COMMAND, {{"en", "Execute Command"}, {"es", "Ejecutar Comando"}, {"fr", "Exécuter la Commande"}}},
+    {STATE_UNRECOGNIZED_COMMAND, {{"en", "Unrecognized Command"}, {"es", "Comando No Reconocido"}, {"fr", "Commande Non Reconnaissance"}}},
+    {STATE_RESET, {{"en", "Reset"}, {"es", "Reiniciar"}, {"fr", "Réinitialiser"}}},
+    {STATE_TRANSLATING, {{"en", "Translating"}, {"es", "Traduciendo"}, {"fr", "Traduction"}}}
+};
+
+volatile unsigned long lastPressTimeRecord = 0; // Last press time for record button
+volatile unsigned long lastPressTimeTrans = 0;  // Last press time for translate button
 
 
 int lastTimeApiRequest;
 
-State currentState = STATE_INIT;
+//State currentState = STATE_INIT;
+// Current state variable (must be volatile because it is modified in ISR)
+volatile State currentState = STATE_INIT;
 
 ShowText currentText = {
   "Hello",
@@ -187,7 +191,8 @@ Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_MOSI, TFT_CLK, TFT_R
 const int ENGLISH = 0, SPANISH = 1, FRENCH = 2;
 String languages[4] = {"en", "es", "fr"};
 int current_language = ENGLISH; // Always start off with English
-std::map<State, std::map<String, String>> stateTranslations;
+
+// std::map<State, std::map<String, String>> stateTranslations;
 
 // Debounce variables
 unsigned long lastDebounceTime = 0;
@@ -222,6 +227,10 @@ void stateUnrecognizedCommand();
 void stateReset();
 void stateTranslating();
 std::map<State, std::map<String, String>> generateStateTranslations();
+void IRAM_ATTR onRecordButtonPress();
+
+void IRAM_ATTR onTransButtonPress();
+
 
 // Initial screen loading waiting all the request
 unsigned long showScreenLoading() {
@@ -281,40 +290,19 @@ void setup() {
   pinMode(RECORD_BUTTON_PIN, INPUT_PULLUP);
   pinMode(TRANS_BUTTON_PIN, INPUT_PULLUP);
 
+  // Setup button interrupts
+  attachInterrupt(digitalPinToInterrupt(RECORD_BUTTON_PIN), onRecordButtonPress, FALLING);
+  attachInterrupt(digitalPinToInterrupt(TRANS_BUTTON_PIN), onTransButtonPress, FALLING);
 
   tft.begin();
   showScreenLoading(); // loading all needed information
 
+  // // Generate translations dynamically (when comment out, it using the global variable stateTranslations above)
+  // Serial.println("Start generate translations");
+  // stateTranslations = generateStateTranslations();
+  // Serial.println("Generated translations");
+
   delay(1000);
-
-  Serial.print("Attempting to connect to SSID: ");
-  Serial.println(ssid);
-
-  WiFi.begin(ssid);
-
-  // attempt to connect to Wifi network:
-  while (WiFi.status() != WL_CONNECTED) {
-    Serial.print(".");
-    delay(1000);
-  }
-
-  Serial.print("Connected to ");
-  Serial.println(ssid);
-
-  lastTimeApiRequest = millis();
-
-  // Generate translations dynamically
-  Serial.println("Start generate translations");
-  stateTranslations = generateStateTranslations();
-  Serial.println("Generated translations");
-
-  // Print time and data on start up:
-  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
-  currentText.dateTime = printLocalTime();
-  // Fetch current weather and events on calendar
-  currentText.temperature = fetchWeather();
-  delay(1000);
-  currentText.eventText = fetchCalendar();
 
   currentState = STATE_INIT;
 
@@ -328,7 +316,9 @@ void loop() {
     lastTimeApiRequest = millis();
   }
 
-  checkButtonPress();
+  // update the status message according to the current language
+  currentText.stateStatus = getStateTranslation(currentState, languages[current_language]);
+  Serial.println("Current State " + currentText.stateStatus);
 
   // Run the current state logic
   switch (currentState) {
@@ -359,57 +349,76 @@ void loop() {
   }
 }
 
-void checkButtonPress() {
-  if (digitalRead(RECORD_BUTTON_PIN) == LOW) { // Button pressed
-    delay(DEBOUNCE_MS); // Debounce delay
-    if (digitalRead(RECORD_BUTTON_PIN) == LOW) { // Confirm press
-       currentState = STATE_RECORDING;
-    }
-  }
-  else if (digitalRead(TRANS_BUTTON_PIN) == LOW) { // Button pressed
-    delay(DEBOUNCE_MS); // Debounce delay
-    if (digitalRead(TRANS_BUTTON_PIN) == LOW) { // Confirm press
-       currentState = STATE_TRANSLATING;
-    }
-  }
-
-  // if ((millis() - lastDebounceTime) > DEBOUNCE_MS) {
-  //   if (digitalRead(RECORD_BUTTON_PIN) == LOW) {
-  //     Serial.println("record click");
-  //     lastDebounceTime = millis();
-  //     currentState = STATE_RECORDING;
-  //   } else if (digitalRead(TRANS_BUTTON_PIN) == LOW) {
-  //     Serial.println("trans click");
-  //     lastDebounceTime = millis();
-  //     currentState = STATE_TRANSLATING;
-  //   }
-  // }
-}
 
 // State Functions
 void stateInit() {
-  currentText.stateStatus = getStateTranslation(currentState, languages[current_language]);
-  Serial.println("Current State " + currentText.stateStatus);
+
+  Serial.print("Attempting to connect to SSID: ");
+  Serial.println(ssid);
+
+  WiFi.begin(ssid);
+
+  // attempt to connect to Wifi network:
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.print(".");
+    delay(1000);
+  }
+
+  Serial.print("Connected to ");
+  Serial.println(ssid);
+
+  lastTimeApiRequest = millis();
+
+  // Print time and data on start up:
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+
+  const int MAX_ATTEMPTS = 10; // max trying attempts
+  int attempts = 0;
+  while (attempts < MAX_ATTEMPTS) {
+    // Call each function and update the respective variables
+    currentText.dateTime = printLocalTime();
+    currentText.temperature = fetchWeather();
+    currentText.eventText = fetchCalendar();
+
+    // Check if all values are valid (not null)
+    if (currentText.dateTime != "null" && 
+        currentText.temperature != "null" && 
+        currentText.eventText != "null") {
+        Serial.println("All data fetched successfully!");
+        break; // Exit the function as all values are valid
+    }
+
+    // Log an error for debugging
+    Serial.println("One or more values are null. Retrying...");
+    delay(1000); // Optional delay between retries
+
+    attempts++;
+  }
 
   showScreenMessage();
   
-  delay(2000);
+  delay(1500);
   currentState = STATE_STANDBY;
 }
 
 void stateStandby() {
-  currentText.stateStatus = getStateTranslation(currentState, languages[current_language]);
-  Serial.println("Current State " + currentText.stateStatus);
 
   showScreenMessage();
-  delay(1000);
-  // Remain in standby until button press triggers state change
+  
+  unsigned long startTime = millis(); // record the start time of mode
+  while (millis() - startTime < 60000) { // 60s
+      // check interrupt
+      if (currentState != STATE_STANDBY) { //interrpt happened
+          Serial.println("Interrupt detected! Exiting standby mode.");
+          return;
+      }
+
+      delay(1); // small delay
+  }
+
 }
 
 void stateRecording() {
-
-  currentText.stateStatus = getStateTranslation(currentState, languages[current_language]);
-  Serial.println("Current State " + currentText.stateStatus);
 
   showScreenMessage();
   delay(RECORD_TIME * 1000); // Simulate recording duration
@@ -418,9 +427,6 @@ void stateRecording() {
 }
 
 void stateVoiceRecognition() {
-  
-  currentText.stateStatus = getStateTranslation(currentState, languages[current_language]);
-  Serial.println("Current State " + currentText.stateStatus);
 
   showScreenMessage();
   delay(3000); // Simulate analysis time
@@ -431,18 +437,12 @@ void stateVoiceRecognition() {
 
 void stateExecuteCommand() {
 
-  currentText.stateStatus = getStateTranslation(currentState, languages[current_language]);
-  Serial.println("Current State " + currentText.stateStatus);
-
   showScreenMessage();
   delay(2000);
   currentState = STATE_STANDBY;
 }
 
 void stateUnrecognizedCommand() {
-
-  currentText.stateStatus = getStateTranslation(currentState, languages[current_language]);
-  Serial.println("Current State " + currentText.stateStatus);
 
   showScreenMessage();
   delay(2000);
@@ -451,19 +451,12 @@ void stateUnrecognizedCommand() {
 
 void stateReset() {
  
-  currentText.stateStatus = getStateTranslation(currentState, languages[current_language]);
-  Serial.println("Current State " + currentText.stateStatus);
-
-
   showScreenMessage();
   delay(2000);
   currentState = STATE_INIT;
 }
 
 void stateTranslating() {
-
-  currentText.stateStatus = getStateTranslation(currentState, languages[current_language]);
-  Serial.println("Current State " + currentText.stateStatus);
 
   // Get source and target languages
   String source_language, target_language;
@@ -474,10 +467,16 @@ void stateTranslating() {
 
   //Serial.println(currentText.stateStatus);
   //Serial.println(currentText.eventText);
-  
+
   showScreenMessage();
-  delay(2000);
-  currentState = STATE_STANDBY;
+  delay(1000);
+  if(currentText.stateStatus == "Connection Failed!" || currentText.eventText == "Connection Failed!"){
+    currentState = STATE_RESET;
+  }
+  else{
+    currentState = STATE_STANDBY;
+  }
+  
 }
 
 
@@ -820,7 +819,7 @@ String getStateTranslation(State state, const String& language) {
 std::map<State, std::map<String, String>> generateStateTranslations() {
     std::map<State, String> baseStates = {
         {STATE_INIT, "Init"},
-        {STATE_STANDBY, "Standby"},
+        {STATE_STANDBY, "Hello"},
         {STATE_RECORDING, "Recording"},
         {STATE_VOICE_RECOGNITION, "Voice Recognition"},
         {STATE_EXECUTE_COMMAND, "Execute Command"},
@@ -857,3 +856,13 @@ String toUpperCase(String input) {
     input.toUpperCase(); // Convert the entire String to uppercase
     return input;
 }
+
+// ISR to change the state
+void IRAM_ATTR onRecordButtonPress() {
+    currentState = STATE_RECORDING;
+}
+
+void IRAM_ATTR onTransButtonPress() {
+    currentState = STATE_TRANSLATING;
+}
+

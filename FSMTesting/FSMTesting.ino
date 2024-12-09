@@ -5,6 +5,86 @@
 #include "Adafruit_GFX.h"
 #include "Adafruit_ILI9341.h"
 
+#include <WiFiClientSecure.h>
+#include <WiFi.h>
+#include <ArduinoJson.h>
+#include "timeAPIKey.h" 
+#include "time.h"
+
+const char* weatherCertificate = 
+"-----BEGIN CERTIFICATE-----\n"
+"MIIF3jCCA8agAwIBAgIQAf1tMPyjylGoG7xkDjUDLTANBgkqhkiG9w0BAQwFADCB\n"
+"iDELMAkGA1UEBhMCVVMxEzARBgNVBAgTCk5ldyBKZXJzZXkxFDASBgNVBAcTC0pl\n"
+"cnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNFUlRSVVNUIE5ldHdvcmsxLjAsBgNV\n"
+"BAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNhdGlvbiBBdXRob3JpdHkwHhcNMTAw\n"
+"MjAxMDAwMDAwWhcNMzgwMTE4MjM1OTU5WjCBiDELMAkGA1UEBhMCVVMxEzARBgNV\n"
+"BAgTCk5ldyBKZXJzZXkxFDASBgNVBAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVU\n"
+"aGUgVVNFUlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2Vy\n"
+"dGlmaWNhdGlvbiBBdXRob3JpdHkwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIK\n"
+"AoICAQCAEmUXNg7D2wiz0KxXDXbtzSfTTK1Qg2HiqiBNCS1kCdzOiZ/MPans9s/B\n"
+"3PHTsdZ7NygRK0faOca8Ohm0X6a9fZ2jY0K2dvKpOyuR+OJv0OwWIJAJPuLodMkY\n"
+"tJHUYmTbf6MG8YgYapAiPLz+E/CHFHv25B+O1ORRxhFnRghRy4YUVD+8M/5+bJz/\n"
+"Fp0YvVGONaanZshyZ9shZrHUm3gDwFA66Mzw3LyeTP6vBZY1H1dat//O+T23LLb2\n"
+"VN3I5xI6Ta5MirdcmrS3ID3KfyI0rn47aGYBROcBTkZTmzNg95S+UzeQc0PzMsNT\n"
+"79uq/nROacdrjGCT3sTHDN/hMq7MkztReJVni+49Vv4M0GkPGw/zJSZrM233bkf6\n"
+"c0Plfg6lZrEpfDKEY1WJxA3Bk1QwGROs0303p+tdOmw1XNtB1xLaqUkL39iAigmT\n"
+"Yo61Zs8liM2EuLE/pDkP2QKe6xJMlXzzawWpXhaDzLhn4ugTncxbgtNMs+1b/97l\n"
+"c6wjOy0AvzVVdAlJ2ElYGn+SNuZRkg7zJn0cTRe8yexDJtC/QV9AqURE9JnnV4ee\n"
+"UB9XVKg+/XRjL7FQZQnmWEIuQxpMtPAlR1n6BB6T1CZGSlCBst6+eLf8ZxXhyVeE\n"
+"Hg9j1uliutZfVS7qXMYoCAQlObgOK6nyTJccBz8NUvXt7y+CDwIDAQABo0IwQDAd\n"
+"BgNVHQ4EFgQUU3m/WqorSs9UgOHYm8Cd8rIDZsswDgYDVR0PAQH/BAQDAgEGMA8G\n"
+"A1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQEMBQADggIBAFzUfA3P9wF9QZllDHPF\n"
+"Up/L+M+ZBn8b2kMVn54CVVeWFPFSPCeHlCjtHzoBN6J2/FNQwISbxmtOuowhT6KO\n"
+"VWKR82kV2LyI48SqC/3vqOlLVSoGIG1VeCkZ7l8wXEskEVX/JJpuXior7gtNn3/3\n"
+"ATiUFJVDBwn7YKnuHKsSjKCaXqeYalltiz8I+8jRRa8YFWSQEg9zKC7F4iRO/Fjs\n"
+"8PRF/iKz6y+O0tlFYQXBl2+odnKPi4w2r78NBc5xjeambx9spnFixdjQg3IM8WcR\n"
+"iQycE0xyNN+81XHfqnHd4blsjDwSXWXavVcStkNr/+XeTWYRUc+ZruwXtuhxkYze\n"
+"Sf7dNXGiFSeUHM9h4ya7b6NnJSFd5t0dCy5oGzuCr+yDZ4XUmFF0sbmZgIn/f3gZ\n"
+"XHlKYC6SQK5MNyosycdiyA5d9zZbyuAlJQG03RoHnHcAP9Dc1ew91Pq7P8yF1m9/\n"
+"qS3fuQL39ZeatTXaw2ewh0qpKJ4jjv9cJ2vhsE/zB+4ALtRZh8tSQZXq9EfX7mRB\n"
+"VXyNWQKV3WKdwrnuWih0hKWbt5DHDAff9Yk2dDLWKMGwsAvgnEzDHNb842m1R0aB\n"
+"L6KCq9NjRHDEjf8tM7qtj3u1cIiuPhnPQCjY/MiQu12ZIvVS5ljFH4gxQ+6IHdfG\n"
+"jjxDah2nGN59PRbxYvnKkKj9\n"
+"-----END CERTIFICATE-----\n";
+
+const char* certificate = 
+"-----BEGIN CERTIFICATE-----\n" \
+"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\n" \
+"bP6MvPJwNQzcmRk13NfIRmPVNnGuV/u3gm3c\n" \
+"-----END CERTIFICATE-----\n";
+
+
+WiFiClientSecure client;
+// HTTPClient http;
+const char* ssid = "Brown-Guest";
+
 // TFT Screen
 #define TFT_DC    14
 #define TFT_CS    10
@@ -38,6 +118,8 @@
 #define WAVE_HEADER_SIZE 44
 #define FILENAME_SIZE 20
 
+#define ONE_MIN 60000
+
 // FSM States
 enum State {
   STATE_INIT,
@@ -57,6 +139,8 @@ typedef struct {
   String temperature;
 } ShowText;
 
+int lastTimeApiRequest;
+
 State currentState = STATE_INIT;
 
 ShowText currentText = {
@@ -74,6 +158,25 @@ Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_MOSI, TFT_CLK, TFT_R
 
 // Debounce variables
 unsigned long lastDebounceTime = 0;
+
+  // NTP protocol for current local time: 
+  const char* ntpServer = "pool.ntp.org";
+  const long  gmtOffset_sec = -18000;
+  const int   daylightOffset_sec = 0;
+
+// Google Calendar API details 
+String calendarID = "5f3728ad2cfeb9b7846eb7ff605f472e9549a757e074621f4048389327947fb0@group.calendar.google.com";
+String calendarApiKey = SECRET_CALENDAR_API_KEY;
+const char* server = "www.googleapis.com";
+String endpoint = "/calendar/v3/calendars/" + calendarID + "/events?key=" + calendarApiKey;
+
+// Weather API details
+String weatherApiKey = SECRET_WEATHER_API_KEY;
+String lat = "41.825226"; // Coordinates for Providence:
+String lon = "-71.418884";
+const char* weatherServer = "api.openweathermap.org";
+String weatherEndpoint = "/data/2.5/weather?lat=" + lat + "&lon=" + lon + "&units=metric&appid=" + weatherApiKey;
+
 
 // Function Prototypes
 void checkButtonPress();
@@ -116,14 +219,45 @@ void setup() {
   pinMode(RECORD_BUTTON_PIN, INPUT_PULLUP);
   pinMode(TRANS_BUTTON_PIN, INPUT_PULLUP);
 
+  delay(1000);
+
+  Serial.print("Attempting to connect to SSID: ");
+  Serial.println(ssid);
+
+  WiFi.begin(ssid);
+
+  // attempt to connect to Wifi network:
+  while (WiFi.status() != WL_CONNECTED) {
+    Serial.print(".");
+    delay(1000);
+  }
+
+  Serial.print("Connected to ");
+  Serial.println(ssid);
+
+  lastTimeApiRequest = millis();
+
+
+  // Print time and data on start up:
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+  currentText.dateTime = printLocalTime();
+  // Fetch current weather and events on calendar
+  currentText.temperature = fetchWeather();
+  delay(1000);
+  currentText.eventText = fetchCalendar();
+
   tft.begin();
-  // If needed for ESP32 S3, adjust SPI or other initializations
-  // sd.begin(SD_CS_PIN, SPI);
-  
+
   currentState = STATE_INIT;
 }
 
 void loop() {
+
+  if (millis() - lastTimeApiRequest >= ONE_MIN){
+    currentText.dateTime = printLocalTime();
+    lastTimeApiRequest = millis();
+  }
+
   checkButtonPress();
 
   // Run the current state logic
@@ -203,6 +337,7 @@ void stateRecording() {
   showScreenMessage();
   delay(RECORD_TIME * 1000); // Simulate recording duration
   currentState = STATE_VOICE_RECOGNITION;
+
 }
 
 void stateVoiceRecognition() {
@@ -240,4 +375,203 @@ void stateTranslating() {
   showScreenMessage();
   delay(2000);
   currentState = STATE_STANDBY;
+}
+
+
+String printLocalTime(){
+
+  struct tm timeinfo;
+  if(!getLocalTime(&timeinfo)){
+    Serial.println("Failed to obtain time");
+    return "null";
+  }
+
+  // Determine if it's AM or PM
+  String period = "AM";
+  int hour = timeinfo.tm_hour; // Get the hour in 24-hour format
+  if (hour >= 12) {
+    period = "PM";
+    if (hour > 12) hour -= 12; // Convert to 12-hour format
+  } else if (hour == 0) {
+    hour = 12; 
+  }
+
+  // Print date and time
+  Serial.print(&timeinfo, "%A, %B %d %Y "); // Day, Month Date Year
+  Serial.print(hour); // 12-hour format hour
+  Serial.print(":");
+  if (timeinfo.tm_min < 10) Serial.print("0"); // Add leading zero for minutes
+  Serial.print(timeinfo.tm_min);
+  Serial.print(" ");
+  Serial.println(period); // Print AM/PM
+
+  char buffer[128];
+  strftime(buffer, sizeof(buffer), "%A, %B %d %Y", &timeinfo); // Formats day, month, date, year
+
+  // Construct the full string including hour, minute, and AM/PM
+  String finalString = String(buffer) + " " 
+                    + String(hour) + ":" 
+                    + ((timeinfo.tm_min < 10) ? "0" : "") 
+                    + String(timeinfo.tm_min) + " " 
+                    + String(period);
+
+  return finalString;
+}
+
+String fetchWeather() {
+  Serial.println("in fetchweather");
+  // Begin request:
+  client.setCACert(weatherCertificate);
+
+  if (client.connect(weatherServer, 443)) {
+    Serial.println("connected to server");
+    // Make a HTTP request:
+    client.print("GET ");
+    client.print(weatherEndpoint);
+    client.println(" HTTP/1.1");
+    client.print("Host: ");
+    client.println(weatherServer);
+    client.println("Connection: close");
+    client.println();
+  } else {
+    Serial.println("client connection failed!");
+  }
+
+  // Read each character in the JSON response one by one 
+  String payload = "";
+
+  while (!client.available()) {
+    delay(100);
+  }
+
+  while (client.available()) {
+    char c = client.read(); // Read character-by-character
+    payload += c;
+  }
+
+  // Extract JSON body from the response to deserialize
+  int bodyIndex = payload.indexOf("\r\n\r\n");
+  if (bodyIndex != -1) {
+    payload = payload.substring(bodyIndex + 4); // Skip the headers
+    // Serial.println("Extracted JSON payload:");
+    // Serial.println(payload);
+  } else {
+    Serial.println("Failed to find JSON body.");
+    return "null";
+  }
+
+  // Deserialize
+  JsonDocument doc; 
+  DeserializationError error = deserializeJson(doc, payload);
+
+  if (error) {
+    Serial.print("Failed to deserialize JSON: ");
+    Serial.println(error.f_str());
+    return "null";
+  }
+
+  JsonObject obj = doc.as<JsonObject>();
+
+  // Extract weather details
+  const char* description = obj["weather"][0]["description"].as<const char*>();
+  const char* icon = obj["weather"][0]["icon"].as<const char*>();
+  const float temp = obj["main"]["temp"].as<float>();
+
+  Serial.print(temp);
+  Serial.println(" C ");
+
+  return String(temp) + " C";
+
+  // client.stop();
+}
+
+
+String fetchCalendar() {
+  Serial.println("in fetch calendar!");
+  // Connect to client and make http request: 
+  client.setCACert(certificate);
+  if (client.connect(server, 443)) {
+    Serial.println("connected to server");
+    // Make a HTTP request:
+    client.print("GET ");
+    client.print(endpoint);
+    client.println(" HTTP/1.1");
+    client.print("Host: ");
+    client.println(server);
+    client.println("Connection: close");
+    client.println();
+  } else {
+    Serial.println("client connection failed!");
+  }
+
+
+  // Read each character in the JSON response one by one 
+  String payload = "";
+  // delay(5000);
+
+  while (!client.available()) {
+    delay(100);
+  }
+
+  while (client.available()) {
+    char c = client.read(); // Read character-by-character
+    payload += c;
+  }
+
+  // Extract JSON body from the response to deserialize
+  int bodyIndex = payload.indexOf("\r\n\r\n");
+  if (bodyIndex != -1) {
+    payload = payload.substring(bodyIndex + 4); // Skip the headers
+
+    // Remove any characters before the JSON object
+    int jsonStart = payload.indexOf("{");
+    if (jsonStart != -1) {
+      payload = payload.substring(jsonStart); // Extract JSON starting from the '{'
+    } else {
+      Serial.println("No valid JSON object found.");
+      return "null";
+    }
+
+    // Serial.println("Extracted JSON payload:");
+    // Serial.println(payload);
+  } else {
+    Serial.println("Failed to find JSON body.");
+    return "null";
+  }
+
+  // Deserialize
+  StaticJsonDocument<1024> doc; // Ensure size is adequate for your JSON structure
+  DeserializationError error = deserializeJson(doc, payload);
+
+  if (error) {
+    Serial.print("Failed to deserialize JSON: ");
+    Serial.println(error.f_str());
+    return "null";
+  }
+
+  JsonArray events = doc["items"].as<JsonArray>();
+
+  // Display the time and summary of each event:
+  int line = 0;
+  String eventBuffer = ""; // Initialize an empty buffer to store events
+
+  for (JsonObject event : events) {
+    const char* summary = event["summary"];
+    const char* start = event["start"]["dateTime"] | event["start"]["date"];
+
+    // Format each event and append it to the buffer
+    eventBuffer += String(start).substring(0, 10); // Add date
+    eventBuffer += ": ";
+    eventBuffer += summary; // Add event name
+    eventBuffer += "\n"; // Add newline for next event
+
+    line++;
+    if (line >= 3) break; // Display 3 events
+  }
+
+  // Print all events at once
+  Serial.println(eventBuffer);
+
+  return eventBuffer;
+  // client.stop();
 }

@@ -154,6 +154,8 @@ typedef struct {
 } ShowText;
 
 // Mapping of states to translations in different languages
+// when during testing the whole process, using this existed variable, other than that, let's using the generateStateTranslations() 
+// at setup function to fullfill this gloabl variable.
 std::map<State, std::map<String, String>> stateTranslations = {
     {STATE_INIT, {{"en", "Init"}, {"es", "Inicio"}, {"fr", "Initialiser"}}},
     {STATE_STANDBY, {{"en", "Hello"}, {"es", "Hola"}, {"fr", "Bonjour"}}},

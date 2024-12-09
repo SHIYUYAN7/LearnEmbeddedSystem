@@ -4,12 +4,14 @@
 #include "wave.h"
 #include "Adafruit_GFX.h"
 #include "Adafruit_ILI9341.h"
+#include <map>
 
 #include <WiFiClientSecure.h>
 #include <WiFi.h>
 #include <ArduinoJson.h>
 #include "timeAPIKey.h" 
 #include "time.h"
+
 
 const char* weatherCertificate = 
 "-----BEGIN CERTIFICATE-----\n"
@@ -47,7 +49,7 @@ const char* weatherCertificate =
 "jjxDah2nGN59PRbxYvnKkKj9\n"
 "-----END CERTIFICATE-----\n";
 
-const char* certificate = 
+const char* calendarCertificate = 
 "-----BEGIN CERTIFICATE-----\n" \
 "MIIFVzCCAz+gAwIBAgINAgPlk28xsBNJiGuiFzANBgkqhkiG9w0BAQwFADBHMQsw\n" \
 "CQYDVQQGEwJVUzEiMCAGA1UEChMZR29vZ2xlIFRydXN0IFNlcnZpY2VzIExMQzEU\n" \
@@ -152,6 +154,19 @@ typedef struct {
   String temperature;
 } ShowText;
 
+// // Mapping of states to translations in different languages
+// std::map<State, std::map<String, String>> stateTranslations = {
+//     {STATE_INIT, {{"en", "Init"}, {"es", "Inicio"}, {"fr", "Initialiser"}}},
+//     {STATE_STANDBY, {{"en", "Standby"}, {"es", "Espera"}, {"fr", "En attente"}}},
+//     {STATE_RECORDING, {{"en", "Recording"}, {"es", "Grabando"}, {"fr", "Enregistrement"}}},
+//     {STATE_VOICE_RECOGNITION, {{"en", "Voice Recognition"}, {"es", "Reconocimiento de Voz"}, {"fr", "Reconnaissance Vocale"}}},
+//     {STATE_EXECUTE_COMMAND, {{"en", "Execute Command"}, {"es", "Ejecutar Comando"}, {"fr", "Exécuter la Commande"}}},
+//     {STATE_UNRECOGNIZED_COMMAND, {{"en", "Unrecognized Command"}, {"es", "Comando No Reconocido"}, {"fr", "Commande Non Reconnaissance"}}},
+//     {STATE_RESET, {{"en", "Reset"}, {"es", "Reiniciar"}, {"fr", "Réinitialiser"}}},
+//     {STATE_TRANSLATING, {{"en", "Translating"}, {"es", "Traduciendo"}, {"fr", "Traduction"}}}
+// };
+
+
 int lastTimeApiRequest;
 
 State currentState = STATE_INIT;
@@ -169,17 +184,18 @@ FsFile file;
 I2SRecord i2sRecorder;
 Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_MOSI, TFT_CLK, TFT_RST, TFT_MISO);
 
-const int ENGLISH = 0, SPANISH = 1, FRENCH = 2, CHINESE = 3;
-String languages[4] = {"en", "es", "fr", "zh"};
+const int ENGLISH = 0, SPANISH = 1, FRENCH = 2;
+String languages[4] = {"en", "es", "fr"};
 int current_language = ENGLISH; // Always start off with English
+std::map<State, std::map<String, String>> stateTranslations;
 
 // Debounce variables
 unsigned long lastDebounceTime = 0;
 
-  // NTP protocol for current local time: 
-  const char* ntpServer = "pool.ntp.org";
-  const long  gmtOffset_sec = -18000;
-  const int   daylightOffset_sec = 0;
+// NTP protocol for current local time: 
+const char* ntpServer = "pool.ntp.org";
+const long  gmtOffset_sec = -18000;
+const int   daylightOffset_sec = 0;
 
 // Google Calendar API details 
 String calendarID = "5f3728ad2cfeb9b7846eb7ff605f472e9549a757e074621f4048389327947fb0@group.calendar.google.com";
@@ -205,28 +221,57 @@ void stateExecuteCommand();
 void stateUnrecognizedCommand();
 void stateReset();
 void stateTranslating();
+std::map<State, std::map<String, String>> generateStateTranslations();
+
+// Initial screen loading waiting all the request
+unsigned long showScreenLoading() {
+  tft.setRotation(1); // vertical
+  tft.fillScreen(0x1A27); // background color
+
+  unsigned long start = micros();
+
+  // Date text color and size
+  tft.setTextColor(ILI9341_WHITE);
+  tft.setTextSize(4);
+  tft.setCursor(5, 13);
+  tft.print("Loading..."); // datetime
+  
+  tft.setTextColor(ILI9341_YELLOW);
+  tft.setCursor(5, 50);
+  tft.print("Be patient!");
+
+  return micros() - start;
+}
+
 
 // Display a message on screen following your specified format
 unsigned long showScreenMessage() {
   tft.setRotation(1); // vertical
-  tft.fillScreen(0x1A27);
+  tft.fillScreen(0x1A27); // background color
+
   unsigned long start = micros();
+
   // Date text color and size
   tft.setTextColor(ILI9341_WHITE);
   tft.setTextSize(2);
   tft.setCursor(5, 13);
-  tft.print(currentText.dateTime.c_str());
+  tft.print(currentText.dateTime.c_str()); // datetime
+
   tft.setCursor(5, 40);
-  tft.print(currentText.temperature.c_str());
+  tft.print("Temp: " + currentText.temperature); // temperature
+
+  tft.setCursor(285, 40);
+  tft.print(toUpperCase(languages[current_language])); // lanaguage
 
   // split line
   tft.drawFastHLine(0, 60, 320, ILI9341_YELLOW);
+
   tft.setTextSize(2);
   tft.setCursor(5, 70);
-  tft.print(currentText.stateStatus.c_str());
+  tft.print(currentText.stateStatus.c_str()); // state status
 
   tft.setCursor(5, 110);
-  tft.print(currentText.eventText.c_str());
+  tft.print(currentText.eventText.c_str()); // event
   return micros() - start;
 }
 
@@ -235,6 +280,10 @@ void setup() {
 
   pinMode(RECORD_BUTTON_PIN, INPUT_PULLUP);
   pinMode(TRANS_BUTTON_PIN, INPUT_PULLUP);
+
+
+  tft.begin();
+  showScreenLoading(); // loading all needed information
 
   delay(1000);
 
@@ -254,6 +303,10 @@ void setup() {
 
   lastTimeApiRequest = millis();
 
+  // Generate translations dynamically
+  Serial.println("Start generate translations");
+  stateTranslations = generateStateTranslations();
+  Serial.println("Generated translations");
 
   // Print time and data on start up:
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
@@ -263,24 +316,13 @@ void setup() {
   delay(1000);
   currentText.eventText = fetchCalendar();
 
-  String source_language = languages[current_language];
-  String target_language = "zh"; 
-  
-  Serial.println(current_language);
-  currentText.stateStatus = translateText(currentText.stateStatus, source_language, target_language);
-  currentText.eventText = translateText(currentText.eventText, source_language, target_language);
-
-  Serial.println(currentText.stateStatus);
-  Serial.println(currentText.eventText);
-
-  tft.begin();
-
   currentState = STATE_INIT;
 
 }
 
 void loop() {
 
+  // fetch the datetime per mins
   if (millis() - lastTimeApiRequest >= ONE_MIN){
     currentText.dateTime = printLocalTime();
     lastTimeApiRequest = millis();
@@ -346,7 +388,9 @@ void checkButtonPress() {
 
 // State Functions
 void stateInit() {
-  currentText.stateStatus = "大家好!";
+  currentText.stateStatus = getStateTranslation(currentState, languages[current_language]);
+  Serial.println("Current State " + currentText.stateStatus);
+
   showScreenMessage();
   
   delay(2000);
@@ -354,14 +398,19 @@ void stateInit() {
 }
 
 void stateStandby() {
-  // currentText.stateStatus = "Hello!";
+  currentText.stateStatus = getStateTranslation(currentState, languages[current_language]);
+  Serial.println("Current State " + currentText.stateStatus);
+
   showScreenMessage();
   delay(1000);
   // Remain in standby until button press triggers state change
 }
 
 void stateRecording() {
-  currentText.stateStatus = "Recording!";
+
+  currentText.stateStatus = getStateTranslation(currentState, languages[current_language]);
+  Serial.println("Current State " + currentText.stateStatus);
+
   showScreenMessage();
   delay(RECORD_TIME * 1000); // Simulate recording duration
   currentState = STATE_VOICE_RECOGNITION;
@@ -369,7 +418,10 @@ void stateRecording() {
 }
 
 void stateVoiceRecognition() {
-  currentText.stateStatus = "Analyzing!";
+  
+  currentText.stateStatus = getStateTranslation(currentState, languages[current_language]);
+  Serial.println("Current State " + currentText.stateStatus);
+
   showScreenMessage();
   delay(3000); // Simulate analysis time
   // After analyzing audio, decide whether command recognized or not
@@ -378,28 +430,51 @@ void stateVoiceRecognition() {
 }
 
 void stateExecuteCommand() {
-  currentText.stateStatus = "Executing Command...";
+
+  currentText.stateStatus = getStateTranslation(currentState, languages[current_language]);
+  Serial.println("Current State " + currentText.stateStatus);
+
   showScreenMessage();
   delay(2000);
   currentState = STATE_STANDBY;
 }
 
 void stateUnrecognizedCommand() {
-  currentText.stateStatus = "Command Not Recognized";
+
+  currentText.stateStatus = getStateTranslation(currentState, languages[current_language]);
+  Serial.println("Current State " + currentText.stateStatus);
+
   showScreenMessage();
   delay(2000);
   currentState = STATE_STANDBY;
 }
 
 void stateReset() {
-  currentText.stateStatus = "System Reset";
+ 
+  currentText.stateStatus = getStateTranslation(currentState, languages[current_language]);
+  Serial.println("Current State " + currentText.stateStatus);
+
+
   showScreenMessage();
   delay(2000);
   currentState = STATE_INIT;
 }
 
 void stateTranslating() {
-  currentText.stateStatus = "Translating...";
+
+  currentText.stateStatus = getStateTranslation(currentState, languages[current_language]);
+  Serial.println("Current State " + currentText.stateStatus);
+
+  // Get source and target languages
+  String source_language, target_language;
+  getNextLanguagePair(source_language, target_language);
+
+  currentText.stateStatus = translateText(currentText.stateStatus, source_language, target_language);
+  currentText.eventText = translateText(currentText.eventText, source_language, target_language);
+
+  //Serial.println(currentText.stateStatus);
+  //Serial.println(currentText.eventText);
+  
   showScreenMessage();
   delay(2000);
   currentState = STATE_STANDBY;
@@ -433,15 +508,16 @@ String printLocalTime(){
   Serial.print(" ");
   Serial.println(period); // Print AM/PM
 
+  // Format the date
   char buffer[128];
-  strftime(buffer, sizeof(buffer), "%A, %B %d %Y", &timeinfo); // Formats day, month, date, year
+  strftime(buffer, sizeof(buffer), "%a, %b %d %y", &timeinfo); // Formats as Mon, Dec 09 24
 
   // Construct the full string including hour, minute, and AM/PM
   String finalString = String(buffer) + " " 
-                    + String(hour) + ":" 
-                    + ((timeinfo.tm_min < 10) ? "0" : "") 
-                    + String(timeinfo.tm_min) + " " 
-                    + String(period);
+                      + String(hour) + ":" 
+                      + ((timeinfo.tm_min < 10) ? "0" : "") 
+                      + String(timeinfo.tm_min) + " " 
+                      + period;
 
   return finalString;
 }
@@ -518,7 +594,7 @@ String fetchWeather() {
 String fetchCalendar() {
   Serial.println("in fetch calendar!");
   // Connect to client and make http request: 
-  client.setCACert(certificate);
+  client.setCACert(calendarCertificate);
   if (client.connect(server, 443)) {
     Serial.println("connected to server");
     // Make a HTTP request:
@@ -615,6 +691,7 @@ String fetchCalendar() {
 *  returns: The translated text as a String
 */
 String translateText(String text, String source_language, String target_language) {
+
   // LibreTranslate API endpoint
   const char* api_url = "www.libretranslate.com";
   String api_key = "49c4aa23-b141-4967-acc4-3352a7c61a30";
@@ -625,8 +702,9 @@ String translateText(String text, String source_language, String target_language
     return "Connection Failed!";
   }
 
+
   String encoded_text = encodeText(text);
-  Serial.print("Encoded text: " + encoded_text);
+  //Serial.print("Encoded text: " + encoded_text);
 
   String postData = 
   "q=" + encoded_text +
@@ -651,13 +729,10 @@ String translateText(String text, String source_language, String target_language
   // client.println("Connection: close");
   // client.println(); // Blank line to indicate end of headers
 
-  Serial.println("posted");
   // Wait for the API response
   while(!client.available()){
     delay(100);
   }
-
-  Serial.println("is available");
 
   // Read the response, and extract the JSON
   String response = "";
@@ -683,7 +758,7 @@ String translateText(String text, String source_language, String target_language
     }
 
   }
-  Serial.println("JSON");
+
   // Close the connection
   client.stop();
 
@@ -721,16 +796,64 @@ String encodeText(String text) {
   return encoded;
 }
 
-/*
-*  Cycles the current_language state variable
-*/
-String nextLanguage(){
+// Function to switch to the next language and return source/target languages
+void getNextLanguagePair(String &source_language, String &target_language) {
+    source_language = languages[current_language];
+    current_language = (current_language + 1) % 3; // Cycle through ENGLISH, SPANISH, FRENCH
+    target_language = languages[current_language];
+}
 
-  // Chinese is the last language in the order, so it must be set back to the first in the order (english)
-  if(current_language == CHINESE){
 
-    return languages[ENGLISH];
-  }
+// Function to get the translation of a state
+String getStateTranslation(State state, const String& language) {
+    // Check if the state exists in the translations
+    if (stateTranslations.find(state) != stateTranslations.end()) {
+        // Check if the language exists for this state
+        if (stateTranslations[state].find(language) != stateTranslations[state].end()) {
+            return stateTranslations[state][language];
+        }
+    }
+    return "Translation Not Found";
+}
 
-  return languages[current_language + 1];
+// Function to generate translations for each state dynamically
+std::map<State, std::map<String, String>> generateStateTranslations() {
+    std::map<State, String> baseStates = {
+        {STATE_INIT, "Init"},
+        {STATE_STANDBY, "Standby"},
+        {STATE_RECORDING, "Recording"},
+        {STATE_VOICE_RECOGNITION, "Voice Recognition"},
+        {STATE_EXECUTE_COMMAND, "Execute Command"},
+        {STATE_UNRECOGNIZED_COMMAND, "Unrecognized Command"},
+        {STATE_RESET, "Reset"},
+        {STATE_TRANSLATING, "Translating"}
+    };
+
+    std::map<State, std::map<String, String>> translations;
+
+    for (const auto& [state, baseText] : baseStates) {
+        std::map<String, String> languageMap;
+
+        // Translate baseText to each target language
+        for (const auto& targetLanguage : languages) {
+            if (targetLanguage == "en") {
+                // English is the base language
+                languageMap[targetLanguage] = baseText;
+            } else {
+                // Translate to other languages
+                String translatedText = translateText(baseText, "en", targetLanguage);
+                languageMap[targetLanguage] = translatedText;
+            }
+        }
+
+        translations[state] = languageMap;
+    }
+
+    return translations;
+}
+
+// Function to convert a String to uppercase
+String toUpperCase(String input) {
+    input.toUpperCase(); // Convert the entire String to uppercase
+    return input;
 }

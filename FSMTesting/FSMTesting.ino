@@ -80,6 +80,19 @@ const char* certificate =
 "bP6MvPJwNQzcmRk13NfIRmPVNnGuV/u3gm3c\n" \
 "-----END CERTIFICATE-----\n";
 
+const char* libre_translate_cert = "-----BEGIN CERTIFICATE-----\n"
+"MIICCTCCAY6gAwIBAgINAgPlwGjvYxqccpBQUjAKBggqhkjOPQQDAzBHMQswCQYD\n"
+"VQQGEwJVUzEiMCAGA1UEChMZR29vZ2xlIFRydXN0IFNlcnZpY2VzIExMQzEUMBIG\n"
+"A1UEAxMLR1RTIFJvb3QgUjQwHhcNMTYwNjIyMDAwMDAwWhcNMzYwNjIyMDAwMDAw\n"
+"WjBHMQswCQYDVQQGEwJVUzEiMCAGA1UEChMZR29vZ2xlIFRydXN0IFNlcnZpY2Vz\n"
+"IExMQzEUMBIGA1UEAxMLR1RTIFJvb3QgUjQwdjAQBgcqhkjOPQIBBgUrgQQAIgNi\n"
+"AATzdHOnaItgrkO4NcWBMHtLSZ37wWHO5t5GvWvVYRg1rkDdc/eJkTBa6zzuhXyi\n"
+"QHY7qca4R9gq55KRanPpsXI5nymfopjTX15YhmUPoYRlBtHci8nHc8iMai/lxKvR\n"
+"HYqjQjBAMA4GA1UdDwEB/wQEAwIBhjAPBgNVHRMBAf8EBTADAQH/MB0GA1UdDgQW\n"
+"BBSATNbrdP9JNqPV2Py1PsVq8JQdjDAKBggqhkjOPQQDAwNpADBmAjEA6ED/g94D\n"
+"9J+uHXqnLrmvT/aDHQ4thQEd0dlq7A/Cr8deVl5c1RxYIigL9zC2L7F8AjEA8GE8\n"
+"p/SgguMh1YQdc4acLa/KNJvxn7kjNuK8YAOdgLOaVsjh4rsUecrNIdSUtUlD\n"
+"-----END CERTIFICATE-----\n";
 
 WiFiClientSecure client;
 // HTTPClient http;
@@ -155,6 +168,10 @@ SdFs sd;
 FsFile file;
 I2SRecord i2sRecorder;
 Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_MOSI, TFT_CLK, TFT_RST, TFT_MISO);
+
+const int ENGLISH = 0, SPANISH = 1, FRENCH = 2, CHINESE = 3;
+String languages[4] = {"en", "es", "fr", "zh"};
+int current_language = ENGLISH; // Always start off with English
 
 // Debounce variables
 unsigned long lastDebounceTime = 0;
@@ -246,9 +263,20 @@ void setup() {
   delay(1000);
   currentText.eventText = fetchCalendar();
 
+  String source_language = languages[current_language];
+  String target_language = "zh"; 
+  
+  Serial.println(current_language);
+  currentText.stateStatus = translateText(currentText.stateStatus, source_language, target_language);
+  currentText.eventText = translateText(currentText.eventText, source_language, target_language);
+
+  Serial.println(currentText.stateStatus);
+  Serial.println(currentText.eventText);
+
   tft.begin();
 
   currentState = STATE_INIT;
+
 }
 
 void loop() {
@@ -318,7 +346,7 @@ void checkButtonPress() {
 
 // State Functions
 void stateInit() {
-  currentText.stateStatus = "Welcome!";
+  currentText.stateStatus = "大家好!";
   showScreenMessage();
   
   delay(2000);
@@ -326,7 +354,7 @@ void stateInit() {
 }
 
 void stateStandby() {
-  currentText.stateStatus = "Hello!";
+  // currentText.stateStatus = "Hello!";
   showScreenMessage();
   delay(1000);
   // Remain in standby until button press triggers state change
@@ -480,9 +508,10 @@ String fetchWeather() {
   Serial.print(temp);
   Serial.println(" C ");
 
+  client.stop();
   return String(temp) + " C";
 
-  // client.stop();
+
 }
 
 
@@ -540,7 +569,7 @@ String fetchCalendar() {
   }
 
   // Deserialize
-  StaticJsonDocument<1024> doc; // Ensure size is adequate for your JSON structure
+  JsonDocument doc; // Ensure size is adequate for your JSON structure
   DeserializationError error = deserializeJson(doc, payload);
 
   if (error) {
@@ -572,6 +601,136 @@ String fetchCalendar() {
   // Print all events at once
   Serial.println(eventBuffer);
 
+  client.stop();
   return eventBuffer;
-  // client.stop();
+
+}
+
+/*
+*  Sends a translation request to LibreTranslate API
+*  - String text: The text to be translated 
+*  - String source_language: The language of the current text that needs translating
+*  - String target_language: The language to translate the current text into
+*
+*  returns: The translated text as a String
+*/
+String translateText(String text, String source_language, String target_language) {
+  // LibreTranslate API endpoint
+  const char* api_url = "www.libretranslate.com";
+  String api_key = "49c4aa23-b141-4967-acc4-3352a7c61a30";
+
+  client.setCACert(libre_translate_cert);
+
+  if (!client.connect(api_url, 443)) { // HTTP over port 80
+    return "Connection Failed!";
+  }
+
+  String encoded_text = encodeText(text);
+  Serial.print("Encoded text: " + encoded_text);
+
+  String postData = 
+  "q=" + encoded_text +
+  "&source=" + source_language +
+  "&target=" + target_language +
+  "&api_key=" + api_key;
+
+  client.println("POST /translate HTTP/1.1");
+  client.println("Host: www.libretranslate.com");  // Host header with the domain
+  client.println("accept: application/json");  // Accept header
+  client.println("Content-Type: application/x-www-form-urlencoded");  // Content type header
+  client.println("Content-Length: " + String(postData.length()));  // Content length
+  client.println("Connection: close");  // Close connection after request
+  client.println();  // Blank line to indicate the end of headers
+
+  // Send the form data
+  client.println(postData);
+
+  // Serial.println("Making GET request");
+  // client.println("GET /languages HTTP/1.1");
+  // client.println("Host: www.libretranslate.com");
+  // client.println("Connection: close");
+  // client.println(); // Blank line to indicate end of headers
+
+  Serial.println("posted");
+  // Wait for the API response
+  while(!client.available()){
+    delay(100);
+  }
+
+  Serial.println("is available");
+
+  // Read the response, and extract the JSON
+  String response = "";
+  String JSON = "";
+  char meow = ' ';
+  bool flag = false; // true when JSON portion of the response has been reached
+
+  while (client.available()) {
+
+    meow = (char)client.read();
+    response += meow;
+
+    // Serial.print(meow);
+
+    // If the end of the main response/beginning of the JSON portion has been reached
+    if (meow == '\n' && response.endsWith("\r\n\r\n")) {
+      flag = true; 
+      continue; // avoid adding a newline to the JSON String
+    }
+
+    if(flag){
+      JSON += meow;
+    }
+
+  }
+  Serial.println("JSON");
+  // Close the connection
+  client.stop();
+
+  // Extract the translation
+  JsonDocument doc;
+  deserializeJson(doc, JSON);
+  return doc["translatedText"];
+}
+
+/*
+*  Takes the given text and translates any non-alphanumeric chatacters into the proper URL encoding
+*  - String text: The text to be encoded
+*
+*  returns: The encoded text as a String
+*/
+String encodeText(String text) {
+
+  String encoded = "";
+
+  for (int i = 0; i < text.length(); i++) {
+    char c = text.charAt(i);
+
+    if (c == ' ') {
+      encoded += "%20";  // Encoding space as %20
+
+    } else if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+               c == '-' || c == '_' || c == '.' || c == '~') {
+      encoded += c;  // Characters that don't need encoding
+      
+    } else {
+      // Encode other characters
+      encoded += "%" + String(c, HEX);
+    }
+  }
+  return encoded;
+}
+
+/*
+*  Cycles the current_language state variable
+*/
+String nextLanguage(){
+
+  // Chinese is the last language in the order, so it must be set back to the first in the order (english)
+  if(current_language == CHINESE){
+
+    return languages[ENGLISH];
+  }
+
+  return languages[current_language + 1];
 }

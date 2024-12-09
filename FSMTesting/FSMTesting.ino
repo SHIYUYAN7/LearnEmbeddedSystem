@@ -124,11 +124,12 @@ const char* ssid = "Brown-Guest";
 // Define button pins
 #define RECORD_BUTTON_PIN   7  // GPIO pin for record button
 #define TRANS_BUTTON_PIN    3  // GPIO pin for translate button
+#define LED_PIN             15 // GPIO pin for LED light
 #define DEBOUNCE_MS         50 // Debounce delay in milliseconds
 
 // Recording configuration
 #define SAMPLE_RATE   16000
-#define RECORD_TIME   5
+#define RECORD_TIME   1
 #define WAVE_HEADER_SIZE 44
 #define FILENAME_SIZE 20
 
@@ -230,7 +231,6 @@ void stateReset();
 void stateTranslating();
 std::map<State, std::map<String, String>> generateStateTranslations();
 void IRAM_ATTR onRecordButtonPress();
-
 void IRAM_ATTR onTransButtonPress();
 
 
@@ -295,6 +295,8 @@ void setup() {
   // Setup button interrupts
   attachInterrupt(digitalPinToInterrupt(RECORD_BUTTON_PIN), onRecordButtonPress, FALLING);
   attachInterrupt(digitalPinToInterrupt(TRANS_BUTTON_PIN), onTransButtonPress, FALLING);
+
+  ledcAttach(LED_PIN, 5000, 8); // LED channel 0, 5kHz, bit
 
   tft.begin();
   showScreenLoading(); // loading all needed information
@@ -438,9 +440,22 @@ void stateVoiceRecognition() {
 }
 
 void stateExecuteCommand() {
-
   showScreenMessage();
-  delay(2000);
+
+  // increase the LED brightness
+  for(int dutyCycle = 0; dutyCycle <= 255; dutyCycle++){   
+    // changing the LED brightness with PWM
+    ledcWrite(LED_PIN, dutyCycle);
+    delay(15);
+  }
+
+  // decrease the LED brightness
+  for(int dutyCycle = 255; dutyCycle >= 0; dutyCycle--){
+    // changing the LED brightness with PWM
+    ledcWrite(LED_PIN, dutyCycle);   
+    delay(15);
+  }
+  delay(1000);
   currentState = STATE_STANDBY;
 }
 

@@ -11,6 +11,7 @@
 #include "timeAPIKey.h" 
 #include "time.h"
 #include <esp_task_wdt.h> // watchdog
+#include "IntentChunkedUploader.h"
 
 
 const char* weatherCertificate = 
@@ -111,12 +112,6 @@ const char* libre_translate_cert = "-----BEGIN CERTIFICATE-----\n"
 #define TFT_MISO  13
 #define TFT_SD_CS 8
 
-// // SD card SPI pins
-// #define SD_CS_PIN   10
-// #define SD_SCK_PIN  12
-// #define SD_MOSI_PIN 11
-// #define SD_MISO_PIN 13
-
 // INMP441 I²S pins
 #define I2S_SCK_PIN   5  // BCLK
 #define I2S_WS_PIN    6  // LRCLK
@@ -134,10 +129,11 @@ const char* libre_translate_cert = "-----BEGIN CERTIFICATE-----\n"
 
 // recording configuration
 #define SAMPLE_RATE   16000
-#define RECORD_TIME   1000
+#define RECORD_TIME   3
 #define ANALYZE_TIME  8000  
 #define WAVE_HEADER_SIZE 44
 #define FILENAME_SIZE 20
+
 
 // time space
 #define ONE_MIN 60000
@@ -180,10 +176,12 @@ std::map<State, std::map<String, String>> stateTranslations = {
 
 // initialization objects
 WiFiClientSecure client;
-const char* ssid = "Brown-Guest";
+const char* ssid = "test";
+const char* pass = "abqnm2002";
 
 volatile unsigned long lastPressTimeRecord = 0; // Last press time for record button
 volatile unsigned long lastPressTimeTrans = 0;  // Last press time for translate button
+volatile bool buttonPressed = false;
 
 int lastTimeApiRequest; // track for updating datetime
 int lastCalendarAndTempRequest; // track for updating 
@@ -203,9 +201,12 @@ ShowText currentText = {
 };
 
 // recorder related
-SdFs sd;
-FsFile file;
 I2SRecord i2sRecorder;
+String access_token = "Bearer DUYP5MQ3OFFSZWFZXBE2VIIB3XHMJRB6";
+IntentChunkedUploader* uploader;
+int32_t communicationData[BUFFER_SIZE];
+char partWavData[BUFFER_SIZE];
+String voiceCommand = "null";
 
 // translating relatted
 const int ENGLISH = 0, SPANISH = 1, FRENCH = 2;
@@ -314,7 +315,7 @@ void setup() {
   pinMode(TRANS_BUTTON_PIN, INPUT_PULLUP);
 
   // Setup button interrupts
-  attachInterrupt(digitalPinToInterrupt(RECORD_BUTTON_PIN), onRecordButtonPress, FALLING);
+  attachInterrupt(digitalPinToInterrupt(RECORD_BUTTON_PIN), executeCommandISR, FALLING);
   attachInterrupt(digitalPinToInterrupt(TRANS_BUTTON_PIN), onTransButtonPress, FALLING);
 
   ledcAttach(LED_PIN, 5000, 8); // LED channel 0, 5kHz, bit
@@ -415,7 +416,9 @@ void stateInit() {
   Serial.print("Attempting to connect to SSID: ");
   Serial.println(ssid);
 
-  WiFi.begin(ssid);
+  WiFi.mode(WIFI_STA);
+
+  WiFi.begin(ssid, pass);
 
   // attempt to connect to Wifi network:
   while (WiFi.status() != WL_CONNECTED) {
@@ -457,8 +460,16 @@ void stateInit() {
     attempts++;
   }
 
+  esp_task_wdt_reset(); // pet dog
+
   lastTimeApiRequest = millis();
   lastCalendarAndTempRequest = millis();
+
+  // initial I2S
+  if (!i2sRecorder.InitInput(I2S_BITS_PER_SAMPLE_32BIT, I2S_SCK_PIN, I2S_WS_PIN, I2S_SD_PIN, SAMPLE_RATE)) {
+    Serial.println("Initialization failed");
+    return;
+  };
   
   showScreenMessage();
   
@@ -491,17 +502,79 @@ void stateStandby() {
 
 void stateRecording() {
 
-  showScreenMessage();
-  delay(RECORD_TIME); // Simulate recording duration
-  currentState = STATE_VOICE_RECOGNITION;
+  if (!buttonPressed) return;
   
+  buttonPressed = false;
+
+  Serial.println("Record Button pressed");
+
+  showScreenMessage();
+
+  uploader = new IntentChunkedUploader(access_token);
+
+  if (!uploader->connected()) {
+    Serial.println("uploader not connected");
+    return;
+  }
+
+  Serial.println("Listening");
+  digitalWrite(LED_BUILTIN, HIGH);
+  const int waveDataSize = SAMPLE_RATE * RECORD_TIME * 2;
+
+  esp_task_wdt_reset(); // pet dog
+  for (int j = 0; j < waveDataSize / BUFFER_SIZE; j++) {
+    auto sz = i2sRecorder.Read((char*)communicationData, BUFFER_SIZE * 4);
+    char* p = (char*)(communicationData);
+
+    for (int i = 0; i < sz / 4; i++) {
+      communicationData[i] *= I2S_AMPLIFY; // Amplify sound
+      if (i % 2 == 0) { // Process right channel
+        partWavData[i] = p[4 * i + 2];
+        partWavData[i + 1] = p[4 * i + 3];
+      }
+    }
+    uploader->startChunk(BUFFER_SIZE * sizeof(char));
+    uploader->sendChunkData((const uint8_t*)partWavData, BUFFER_SIZE * sizeof(char));
+    uploader->finishChunk();
+  }
+  digitalWrite(LED_BUILTIN, LOW);
+
+  // unsigned long start_time = millis();
+  // Serial.println("get result");
+  // while(millis() - start_time < 3000) {}
+
+  //delay(RECORD_TIME); // Simulate recording duration
+  currentState = STATE_VOICE_RECOGNITION;
+   
   esp_task_wdt_reset(); // pet dog
 }
 
 void stateVoiceRecognition() {
 
   showScreenMessage();
-  delay(3000); // Simulate analysis time
+
+  Intent intent = uploader->getResults();
+
+  delete(uploader);
+
+  String intent_name = String(intent.intent_name.c_str());
+  Serial.println("Process intent");
+  Serial.println(intent_name);
+  if(intent_name == "turn_on_off" && intent.trait_confidence > 0.95){
+    //toggleLight(String(intent.trait_value.c_str()));
+    voiceCommand = String(intent.trait_value.c_str());
+    Serial.println(String(intent.trait_value.c_str()));
+  }
+  else if (intent_name == "calendar_fetch" && intent.intent_confidence > 0.95){
+    //fetchCalendar();
+    voiceCommand = "calendar";
+    Serial.println("calendar");
+  }
+  else{
+    Serial.println("else");
+  }
+
+  esp_task_wdt_reset(); // pet dog
 
   // After analyzing audio, decide whether command recognized or not
   // For now, let's assume command recognized:
@@ -514,21 +587,33 @@ void stateExecuteCommand() {
 
   showScreenMessage();
 
-  // increase the LED brightness
-  for(int dutyCycle = 0; dutyCycle <= 255; dutyCycle++){   
-    // changing the LED brightness with PWM
-    ledcWrite(LED_PIN, dutyCycle);
-    esp_task_wdt_reset(); // pet dog
-    delay(15);
+  if (voiceCommand == "on") {
+    // increase the LED brightness
+    for(int dutyCycle = 0; dutyCycle <= 255; dutyCycle++){   
+      // changing the LED brightness with PWM
+      ledcWrite(LED_PIN, dutyCycle);
+      esp_task_wdt_reset(); // pet dog
+      delay(15);
+    }
+  }
+  if (voiceCommand == "off") {
+    // decrease the LED brightness
+    for(int dutyCycle = 255; dutyCycle >= 0; dutyCycle--){
+      // changing the LED brightness with PWM
+      ledcWrite(LED_PIN, dutyCycle);   
+      esp_task_wdt_reset(); // pet dog
+      delay(15);
+    }
   }
 
-  // decrease the LED brightness
-  for(int dutyCycle = 255; dutyCycle >= 0; dutyCycle--){
-    // changing the LED brightness with PWM
-    ledcWrite(LED_PIN, dutyCycle);   
-    esp_task_wdt_reset(); // pet dog
-    delay(15);
+  if (voiceCommand == "calendar") {
+    currentText.eventLists = fetchCalendar();
+    currentText.eventLists = translateTextList(currentText.eventLists, "en", languages[current_language]);
   }
+
+  
+
+
   delay(1000);
   currentState = STATE_STANDBY;
 
@@ -983,4 +1068,17 @@ void IRAM_ATTR onRecordButtonPress() {
 void IRAM_ATTR onTransButtonPress() {
     currentState = STATE_TRANSLATING;
 }
+
+void executeCommandISR() {
+  static unsigned long last_interrupt_time = 0;
+  unsigned long interrupt_time = millis();
+
+  if (interrupt_time - last_interrupt_time > 200){
+  buttonPressed = true; 
+  }
+  last_interrupt_time = interrupt_time;
+  
+  currentState = STATE_RECORDING;
+}
+
 

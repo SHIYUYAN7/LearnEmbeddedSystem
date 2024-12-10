@@ -158,7 +158,7 @@ enum State {
 // showing screen text structure
 typedef struct {
   String stateStatus;
-  String eventText;
+  std::vector<String> eventLists; // for multiple events
   String dateTime;
   String temperature;
 } ShowText;
@@ -197,7 +197,7 @@ Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_MOSI, TFT_CLK, TFT_R
 // dummy text for screen showing 
 ShowText currentText = {
   "Hello",
-  "Today's event: Demo at 2 PM",
+  std::vector<String>(),
   "Sun Nov 17 2024 12:30pm",
   "5.6 C"
 };
@@ -245,6 +245,9 @@ void stateTranslating();
 std::map<State, std::map<String, String>> generateStateTranslations();
 void IRAM_ATTR onRecordButtonPress();
 void IRAM_ATTR onTransButtonPress();
+std::vector<String> fetchCalendar();
+std::vector<String> translateTextList(const std::vector<String> &events, const String &source_language, const String &target_language);
+
 
 
 // Initial screen loading waiting all the request
@@ -294,8 +297,13 @@ unsigned long showScreenMessage() {
   tft.setCursor(5, 70);
   tft.print(currentText.stateStatus.c_str()); // state status
 
-  tft.setCursor(5, 110);
-  tft.print(currentText.eventText.c_str()); // event
+  // print multiple events
+  int yPos = 110;
+  for (auto &evt : currentText.eventLists) {
+    tft.setCursor(5, yPos);
+    tft.print(evt);
+    yPos += 40; 
+  }
   return micros() - start;
 }
 
@@ -360,7 +368,7 @@ void loop() {
   // fetch the calendar and temp per 10 mins
   if (millis() - lastCalendarAndTempRequest >= TEN_MINS){
     currentText.temperature = fetchWeather();
-    currentText.eventText = fetchCalendar();
+    currentText.eventLists = fetchCalendar();
     lastCalendarAndTempRequest = millis();
   }
 
@@ -431,13 +439,13 @@ void stateInit() {
     // Call each function and update the respective variables
     currentText.dateTime = printLocalTime();
     currentText.temperature = fetchWeather();
-    currentText.eventText = fetchCalendar();
+    currentText.eventLists = fetchCalendar();
     esp_task_wdt_reset(); // same
 
     // Check if all values are valid (not null)
     if (currentText.dateTime != "null" && 
         currentText.temperature != "null" && 
-        currentText.eventText != "null") {
+        !currentText.eventLists.empty()) {
         Serial.println("All data fetched successfully!");
         break; // Exit the function as all values are valid
     }
@@ -547,19 +555,20 @@ void stateReset() {
 
 void stateTranslating() {
 
+  showScreenMessage();
+
   // Get source and target languages
   String source_language, target_language;
   getNextLanguagePair(source_language, target_language);
   
   esp_task_wdt_reset(); // Peg the dog to avoid blocking translation calls for too long
   currentText.stateStatus = translateText(currentText.stateStatus, source_language, target_language);
+
   esp_task_wdt_reset(); // same reason
-  currentText.eventText = translateText(currentText.eventText, source_language, target_language);
+  currentText.eventLists = translateTextList(currentText.eventLists, source_language, target_language);
   esp_task_wdt_reset(); // same reason
 
-  showScreenMessage();
-  delay(1000);
-  if(currentText.stateStatus == "Connection Failed!" || currentText.eventText == "Connection Failed!"){
+  if(currentText.stateStatus == "Connection Failed!" || currentText.eventLists.empty()){
     currentState = STATE_RESET;
   }
   else{
@@ -600,7 +609,7 @@ String printLocalTime(){
 
   // Format the date
   char buffer[128];
-  strftime(buffer, sizeof(buffer), "%a, %b %d %y", &timeinfo); // Formats as Mon, Dec 09 24
+  strftime(buffer, sizeof(buffer), "%a, %b %d %Y", &timeinfo); // Formats as Mon, Dec 09 24
 
   // Construct the full string including hour, minute, and AM/PM
   String finalString = String(buffer) + " " 
@@ -681,7 +690,7 @@ String fetchWeather() {
 }
 
 
-String fetchCalendar() {
+std::vector<String> fetchCalendar() {
   Serial.println("in fetch calendar!");
   // Connect to client and make http request: 
   client.setCACert(calendarCertificate);
@@ -699,6 +708,8 @@ String fetchCalendar() {
     Serial.println("client connection failed!");
   }
 
+  std::vector<String> resList;
+
 
   // Read each character in the JSON response one by one 
   String payload = "";
@@ -713,6 +724,8 @@ String fetchCalendar() {
     payload += c;
   }
 
+  
+
   // Extract JSON body from the response to deserialize
   int bodyIndex = payload.indexOf("\r\n\r\n");
   if (bodyIndex != -1) {
@@ -724,14 +737,14 @@ String fetchCalendar() {
       payload = payload.substring(jsonStart); // Extract JSON starting from the '{'
     } else {
       Serial.println("No valid JSON object found.");
-      return "null";
+      return resList;
     }
 
     // Serial.println("Extracted JSON payload:");
     // Serial.println(payload);
   } else {
     Serial.println("Failed to find JSON body.");
-    return "null";
+    return resList;
   }
 
   // Deserialize
@@ -741,34 +754,33 @@ String fetchCalendar() {
   if (error) {
     Serial.print("Failed to deserialize JSON: ");
     Serial.println(error.f_str());
-    return "null";
+    return resList;
   }
 
   JsonArray events = doc["items"].as<JsonArray>();
 
   // Display the time and summary of each event:
-  int line = 0;
-  String eventBuffer = ""; // Initialize an empty buffer to store events
 
+  // take max 3 events to show
+  int line = 0;
   for (JsonObject event : events) {
     const char* summary = event["summary"];
     const char* start = event["start"]["dateTime"] | event["start"]["date"];
 
-    // Format each event and append it to the buffer
-    eventBuffer += String(start).substring(0, 10); // Add date
-    eventBuffer += ": ";
-    eventBuffer += summary; // Add event name
-    eventBuffer += "\n"; // Add newline for next event
+    String eventStr = String(start).substring(0, 10) + ": " + summary;
+    resList.push_back(eventStr);
 
     line++;
-    if (line >= 3) break; // Display 3 events
+    if (line >= 3) break; 
   }
 
-  // Print all events at once
-  Serial.println(eventBuffer);
+  // print to check
+  for (auto &ev : resList) {
+    Serial.println(ev);
+  }
 
   client.stop();
-  return eventBuffer;
+  return resList;
 
 }
 
@@ -857,6 +869,21 @@ String translateText(String text, String source_language, String target_language
   deserializeJson(doc, JSON);
   return doc["translatedText"];
 }
+
+std::vector<String> translateTextList(const std::vector<String> &events, const String &source_language, const String &target_language) {
+  std::vector<String> translatedEvents;
+  for (auto &evt : events) {
+    String translated = translateText(evt, source_language, target_language);
+    if (translated == "Connection Failed!") {
+      // return empty list of string
+      return std::vector<String>();
+    }
+    translatedEvents.push_back(translated);
+  }
+  return translatedEvents;
+}
+
+
 
 /*
 *  Takes the given text and translates any non-alphanumeric chatacters into the proper URL encoding

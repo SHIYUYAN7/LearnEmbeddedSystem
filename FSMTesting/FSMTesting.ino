@@ -12,6 +12,8 @@
 #include "timeAPIKey.h" 
 #include "time.h"
 
+#include <esp_task_wdt.h> // watchdog
+
 
 const char* weatherCertificate = 
 "-----BEGIN CERTIFICATE-----\n"
@@ -129,11 +131,13 @@ const char* ssid = "Brown-Guest";
 
 // Recording configuration
 #define SAMPLE_RATE   16000
-#define RECORD_TIME   1
+#define RECORD_TIME   1000
+#define ANALYZE_TIME  8000  
 #define WAVE_HEADER_SIZE 44
 #define FILENAME_SIZE 20
 
 #define ONE_MIN 60000
+#define TEN_MINS 600000
 
 // FSM States
 enum State {
@@ -171,8 +175,8 @@ std::map<State, std::map<String, String>> stateTranslations = {
 volatile unsigned long lastPressTimeRecord = 0; // Last press time for record button
 volatile unsigned long lastPressTimeTrans = 0;  // Last press time for translate button
 
-
 int lastTimeApiRequest;
+int lastCalendarAndTempRequest;
 
 //State currentState = STATE_INIT;
 // Current state variable (must be volatile because it is modified in ISR)
@@ -196,9 +200,6 @@ String languages[4] = {"en", "es", "fr"};
 int current_language = ENGLISH; // Always start off with English
 
 // std::map<State, std::map<String, String>> stateTranslations;
-
-// Debounce variables
-unsigned long lastDebounceTime = 0;
 
 // NTP protocol for current local time: 
 const char* ntpServer = "pool.ntp.org";
@@ -310,14 +311,45 @@ void setup() {
 
   currentState = STATE_INIT;
 
+  // Back-initialize the existing WDT first (if it already exists)
+  esp_task_wdt_deinit();
+  // initial watchdog for waiting 20S, it will reset after that.
+  // watchdog struct
+  esp_task_wdt_config_t wdt_config = {
+    .timeout_ms = 20000,              // 20 seconds
+    .idle_core_mask = (1 << portNUM_PROCESSORS) - 1, // monitor two cores
+    .trigger_panic = false               // reset after 30 seconds
+  };
+
+  // initial watchdog
+  esp_err_t err = esp_task_wdt_init(&wdt_config);
+  if (err == ESP_OK) {
+    Serial.println("Watchdog initialized successfully!");
+  } else {
+    Serial.print("Watchdog init failed with error: ");
+    Serial.println(err);
+  }
+  // put current process in monitor
+  esp_task_wdt_add(NULL);
+
 }
 
 void loop() {
+
+  // pet the dog before the start of each loop to avoid watchdog timeout
+  esp_task_wdt_reset();
 
   // fetch the datetime per mins
   if (millis() - lastTimeApiRequest >= ONE_MIN){
     currentText.dateTime = printLocalTime();
     lastTimeApiRequest = millis();
+  }
+
+  // fetch the calendar and temp per 10 mins
+  if (millis() - lastCalendarAndTempRequest >= TEN_MINS){
+    currentText.temperature = fetchWeather();
+    currentText.eventText = fetchCalendar();
+    lastCalendarAndTempRequest = millis();
   }
 
   // update the status message according to the current language
@@ -351,6 +383,9 @@ void loop() {
       stateTranslating();
       break;
   }
+
+  // pet the dog again before the end of each loop
+  esp_task_wdt_reset();
 }
 
 
@@ -365,13 +400,12 @@ void stateInit() {
   // attempt to connect to Wifi network:
   while (WiFi.status() != WL_CONNECTED) {
     Serial.print(".");
+    esp_task_wdt_reset(); // pet the dog and avoid resetting during wifi connection
     delay(1000);
   }
 
   Serial.print("Connected to ");
   Serial.println(ssid);
-
-  lastTimeApiRequest = millis();
 
   // Print time and data on start up:
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
@@ -379,10 +413,14 @@ void stateInit() {
   const int MAX_ATTEMPTS = 10; // max trying attempts
   int attempts = 0;
   while (attempts < MAX_ATTEMPTS) {
+
+    esp_task_wdt_reset(); // pet the dog and avoid resetting during fetch data
+
     // Call each function and update the respective variables
     currentText.dateTime = printLocalTime();
     currentText.temperature = fetchWeather();
     currentText.eventText = fetchCalendar();
+    esp_task_wdt_reset(); // same
 
     // Check if all values are valid (not null)
     if (currentText.dateTime != "null" && 
@@ -399,53 +437,68 @@ void stateInit() {
     attempts++;
   }
 
+  lastTimeApiRequest = millis();
+  lastCalendarAndTempRequest = millis();
+  
   showScreenMessage();
   
   delay(1500);
   currentState = STATE_STANDBY;
+
+  esp_task_wdt_reset(); // pet dog
 }
 
 void stateStandby() {
-
   showScreenMessage();
   
   unsigned long startTime = millis(); // record the start time of mode
   while (millis() - startTime < 60000) { // 60s
-      // check interrupt
-      if (currentState != STATE_STANDBY) { //interrpt happened
-          Serial.println("Interrupt detected! Exiting standby mode.");
-          return;
-      }
 
-      delay(1); // small delay
+    esp_task_wdt_reset(); // pet the dog regularly while waiting interrupt
+
+    // check interrupt
+    if (currentState != STATE_STANDBY) { //interrpt happened
+        Serial.println("Interrupt detected! Exiting standby mode.");
+        return;
+    }
+
+    delay(1); // small delay
   }
+
+  esp_task_wdt_reset(); // pet dog
 
 }
 
 void stateRecording() {
 
   showScreenMessage();
-  delay(RECORD_TIME * 1000); // Simulate recording duration
+  delay(RECORD_TIME); // Simulate recording duration
   currentState = STATE_VOICE_RECOGNITION;
-
+  
+  esp_task_wdt_reset(); // pet dog
 }
 
 void stateVoiceRecognition() {
 
   showScreenMessage();
   delay(3000); // Simulate analysis time
+
   // After analyzing audio, decide whether command recognized or not
   // For now, let's assume command recognized:
   currentState = STATE_EXECUTE_COMMAND;
+
+  esp_task_wdt_reset(); // pet dog
 }
 
 void stateExecuteCommand() {
+
   showScreenMessage();
 
   // increase the LED brightness
   for(int dutyCycle = 0; dutyCycle <= 255; dutyCycle++){   
     // changing the LED brightness with PWM
     ledcWrite(LED_PIN, dutyCycle);
+    esp_task_wdt_reset(); // pet dog
     delay(15);
   }
 
@@ -453,10 +506,13 @@ void stateExecuteCommand() {
   for(int dutyCycle = 255; dutyCycle >= 0; dutyCycle--){
     // changing the LED brightness with PWM
     ledcWrite(LED_PIN, dutyCycle);   
+    esp_task_wdt_reset(); // pet dog
     delay(15);
   }
   delay(1000);
   currentState = STATE_STANDBY;
+
+  esp_task_wdt_reset(); //pet dog
 }
 
 void stateUnrecognizedCommand() {
@@ -464,13 +520,17 @@ void stateUnrecognizedCommand() {
   showScreenMessage();
   delay(2000);
   currentState = STATE_STANDBY;
+
+  esp_task_wdt_reset(); // pet dog
 }
 
 void stateReset() {
- 
+
   showScreenMessage();
   delay(2000);
   currentState = STATE_INIT;
+  
+  esp_task_wdt_reset(); // pet dog
 }
 
 void stateTranslating() {
@@ -478,12 +538,12 @@ void stateTranslating() {
   // Get source and target languages
   String source_language, target_language;
   getNextLanguagePair(source_language, target_language);
-
+  
+  esp_task_wdt_reset(); // Peg the dog to avoid blocking translation calls for too long
   currentText.stateStatus = translateText(currentText.stateStatus, source_language, target_language);
+  esp_task_wdt_reset(); // same reason
   currentText.eventText = translateText(currentText.eventText, source_language, target_language);
-
-  //Serial.println(currentText.stateStatus);
-  //Serial.println(currentText.eventText);
+  esp_task_wdt_reset(); // same reason
 
   showScreenMessage();
   delay(1000);
@@ -493,6 +553,8 @@ void stateTranslating() {
   else{
     currentState = STATE_STANDBY;
   }
+
+  esp_task_wdt_reset();
   
 }
 

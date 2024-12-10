@@ -5,13 +5,11 @@
 #include "Adafruit_GFX.h"
 #include "Adafruit_ILI9341.h"
 #include <map>
-
 #include <WiFiClientSecure.h>
 #include <WiFi.h>
 #include <ArduinoJson.h>
 #include "timeAPIKey.h" 
 #include "time.h"
-
 #include <esp_task_wdt.h> // watchdog
 
 
@@ -98,8 +96,11 @@ const char* libre_translate_cert = "-----BEGIN CERTIFICATE-----\n"
 "p/SgguMh1YQdc4acLa/KNJvxn7kjNuK8YAOdgLOaVsjh4rsUecrNIdSUtUlD\n"
 "-----END CERTIFICATE-----\n";
 
-WiFiClientSecure client;
-const char* ssid = "Brown-Guest";
+/*
+* 
+* Define for Pins and Constants
+*  
+*/
 
 // TFT Screen
 #define TFT_DC    14
@@ -110,32 +111,35 @@ const char* ssid = "Brown-Guest";
 #define TFT_MISO  13
 #define TFT_SD_CS 8
 
-// // Define SD card SPI pins
+// // SD card SPI pins
 // #define SD_CS_PIN   10
 // #define SD_SCK_PIN  12
 // #define SD_MOSI_PIN 11
 // #define SD_MISO_PIN 13
 
-// Define INMP441 I²S pins
+// INMP441 I²S pins
 #define I2S_SCK_PIN   5  // BCLK
 #define I2S_WS_PIN    6  // LRCLK
 #define I2S_SD_PIN    4  // DOUT
 #define I2S_AMPLIFY   20 // Amplification factor
 #define BUFFER_SIZE   1024
 
-// Define button pins
+// button pins
 #define RECORD_BUTTON_PIN   7  // GPIO pin for record button
 #define TRANS_BUTTON_PIN    3  // GPIO pin for translate button
-#define LED_PIN             15 // GPIO pin for LED light
 #define DEBOUNCE_MS         50 // Debounce delay in milliseconds
 
-// Recording configuration
+// LED pins
+#define LED_PIN             15 // GPIO pin for LED light
+
+// recording configuration
 #define SAMPLE_RATE   16000
 #define RECORD_TIME   1000
 #define ANALYZE_TIME  8000  
 #define WAVE_HEADER_SIZE 44
 #define FILENAME_SIZE 20
 
+// time space
 #define ONE_MIN 60000
 #define TEN_MINS 600000
 
@@ -151,12 +155,14 @@ enum State {
   STATE_TRANSLATING
 };
 
+// showing screen text structure
 typedef struct {
   String stateStatus;
   String eventText;
   String dateTime;
   String temperature;
 } ShowText;
+
 
 // Mapping of states to translations in different languages
 // when during testing the whole process, using this existed variable, other than that, let's using the generateStateTranslations() 
@@ -172,16 +178,23 @@ std::map<State, std::map<String, String>> stateTranslations = {
     {STATE_TRANSLATING, {{"en", "Translating"}, {"es", "Traduciendo"}, {"fr", "Traduction"}}}
 };
 
+// initialization objects
+WiFiClientSecure client;
+const char* ssid = "Brown-Guest";
+
 volatile unsigned long lastPressTimeRecord = 0; // Last press time for record button
 volatile unsigned long lastPressTimeTrans = 0;  // Last press time for translate button
 
-int lastTimeApiRequest;
-int lastCalendarAndTempRequest;
+int lastTimeApiRequest; // track for updating datetime
+int lastCalendarAndTempRequest; // track for updating 
 
-//State currentState = STATE_INIT;
 // Current state variable (must be volatile because it is modified in ISR)
 volatile State currentState = STATE_INIT;
 
+// tft screen object
+Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_MOSI, TFT_CLK, TFT_RST, TFT_MISO);
+
+// dummy text for screen showing 
 ShowText currentText = {
   "Hello",
   "Today's event: Demo at 2 PM",
@@ -189,16 +202,15 @@ ShowText currentText = {
   "5.6 C"
 };
 
-// Global objects
+// recorder related
 SdFs sd;
 FsFile file;
 I2SRecord i2sRecorder;
-Adafruit_ILI9341 tft = Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_MOSI, TFT_CLK, TFT_RST, TFT_MISO);
 
+// translating relatted
 const int ENGLISH = 0, SPANISH = 1, FRENCH = 2;
 String languages[4] = {"en", "es", "fr"};
 int current_language = ENGLISH; // Always start off with English
-
 // std::map<State, std::map<String, String>> stateTranslations;
 
 // NTP protocol for current local time: 
@@ -558,7 +570,7 @@ void stateTranslating() {
   
 }
 
-
+// output the datetime from api
 String printLocalTime(){
 
   struct tm timeinfo;

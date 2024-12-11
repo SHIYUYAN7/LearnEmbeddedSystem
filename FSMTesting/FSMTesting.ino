@@ -1,7 +1,6 @@
 #include <SPI.h>
 #include "SdFat.h"
 #include "I2SRecord.h"
-#include "wave.h"
 #include "Adafruit_GFX.h"
 #include "Adafruit_ILI9341.h"
 #include <map>

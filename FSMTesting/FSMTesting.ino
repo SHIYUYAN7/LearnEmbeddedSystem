@@ -253,7 +253,7 @@ std::vector<String> translateTextList(const std::vector<String> &events, const S
 
 // Initial screen loading waiting all the request
 unsigned long showScreenLoading() {
-  tft.setRotation(1); // vertical
+  tft.setRotation(3); // vertical
   tft.fillScreen(0x1A27); // background color
 
   unsigned long start = micros();
@@ -274,7 +274,7 @@ unsigned long showScreenLoading() {
 
 // Display a message on screen following your specified format
 unsigned long showScreenMessage() {
-  tft.setRotation(1); // vertical
+  tft.setRotation(3); // vertical
   tft.fillScreen(0x1A27); // background color
 
   unsigned long start = micros();
@@ -442,13 +442,12 @@ void stateInit() {
     // Call each function and update the respective variables
     currentText.dateTime = printLocalTime();
     currentText.temperature = fetchWeather();
-    currentText.eventLists = fetchCalendar();
+    //currentText.eventLists = fetchCalendar();
     esp_task_wdt_reset(); // same
 
     // Check if all values are valid (not null)
     if (currentText.dateTime != "null" && 
-        currentText.temperature != "null" && 
-        !currentText.eventLists.empty()) {
+        currentText.temperature != "null") {
         Serial.println("All data fetched successfully!");
         break; // Exit the function as all values are valid
     }
@@ -606,15 +605,13 @@ void stateExecuteCommand() {
     }
   }
 
+  esp_task_wdt_reset(); //pet dog
+
   if (voiceCommand == "calendar") {
     currentText.eventLists = fetchCalendar();
     currentText.eventLists = translateTextList(currentText.eventLists, "en", languages[current_language]);
   }
 
-  
-
-
-  delay(1000);
   currentState = STATE_STANDBY;
 
   esp_task_wdt_reset(); //pet dog
@@ -646,19 +643,30 @@ void stateTranslating() {
   String source_language, target_language;
   getNextLanguagePair(source_language, target_language);
   
-  esp_task_wdt_reset(); // Peg the dog to avoid blocking translation calls for too long
+  esp_task_wdt_reset(); // Pet the dog to avoid blocking translation calls for too long
   currentText.stateStatus = translateText(currentText.stateStatus, source_language, target_language);
 
-  esp_task_wdt_reset(); // same reason
-  currentText.eventLists = translateTextList(currentText.eventLists, source_language, target_language);
-  esp_task_wdt_reset(); // same reason
+  if (!currentText.eventLists.empty()){
+    esp_task_wdt_reset(); // same reason
+    currentText.eventLists = translateTextList(currentText.eventLists, source_language, target_language);
+    esp_task_wdt_reset(); // same reason
 
-  if(currentText.stateStatus == "Connection Failed!" || currentText.eventLists.empty()){
-    currentState = STATE_RESET;
+    if(currentText.stateStatus == "Connection Failed!" || currentText.eventLists.empty()){
+      currentState = STATE_RESET;
+    }
+    else{
+      currentState = STATE_STANDBY;
+    }
   }
   else{
-    currentState = STATE_STANDBY;
+    if(currentText.stateStatus == "Connection Failed!"){
+      currentState = STATE_RESET;
+    }
+    else{
+      currentState = STATE_STANDBY;
+    }
   }
+
 
   esp_task_wdt_reset();
   
@@ -956,6 +964,10 @@ String translateText(String text, String source_language, String target_language
 }
 
 std::vector<String> translateTextList(const std::vector<String> &events, const String &source_language, const String &target_language) {
+
+  if (source_language == target_language){
+    return events;
+  }
   std::vector<String> translatedEvents;
   for (auto &evt : events) {
     String translated = translateText(evt, source_language, target_language);

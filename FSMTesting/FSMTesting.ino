@@ -595,19 +595,15 @@ void stateVoiceRecognition() {
     Serial.println(String(intent.trait_value.c_str()));
   }
   else if (intent_name == "calendar_fetch" && intent.intent_confidence >= 0.95){
-    //fetchCalendar();
     voiceCommand = "calendar";
     Serial.println("calendar");
+
+    currentState = STATE_EXECUTE_COMMAND;
   }
   else{
-    Serial.println("else");
+    Serial.println("Unrecognized Command");
+    currentState = STATE_UNRECOGNIZED_COMMAND;
   }
-
-  esp_task_wdt_reset(); // pet dog
-
-  // After analyzing audio, decide whether command recognized or not
-  // For now, let's assume command recognized:
-  currentState = STATE_EXECUTE_COMMAND;
 
   esp_task_wdt_reset(); // pet dog
 }
@@ -676,6 +672,7 @@ void stateTranslating() {
   esp_task_wdt_reset(); // Pet the dog to avoid blocking translation calls for too long
   currentText.stateStatus = translateText(currentText.stateStatus, source_language, target_language);
 
+  // do not need to translate calendar if it's not showing
   if (!currentText.eventLists.empty()){
     esp_task_wdt_reset(); // same reason
     currentText.eventLists = translateTextList(currentText.eventLists, source_language, target_language);

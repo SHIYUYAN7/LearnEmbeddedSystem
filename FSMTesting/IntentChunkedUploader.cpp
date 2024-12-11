@@ -1,7 +1,51 @@
+// Adapted from Atomic14’s WitAiChunkedUploader in
+// https://github.com/atomic14/diy-alexa/blob/master/firmware/lib/wit_ai/WitAiChunkedUploader.cpp.
+
+
 #include "IntentChunkedUploader.h"
 #include "WiFiClientSecure.h"
 #include <ArduinoJson.h>
 
+#ifdef TESTING
+// mocked IntentChunkedUploader
+IntentChunkedUploader::IntentChunkedUploader(String accessKey) {
+  Serial.println("connected to server");
+}
+
+IntentChunkedUploader::connected() {
+  return true;
+}
+void IntentChunkedUploader::startChunk(int size_in_bytes) {
+  Serial.println("starting chunk");
+}
+
+void IntentChunkedUploader::sendChunkData(const uint8_t *data, int size_in_bytes) {
+  Serial.println("sending chunk");
+}
+
+void IntentChunkedUploader::finishChunk() {
+  Serial.println("finishing chunk");
+}
+
+Intent IntentChunkedUploader::getResults() {
+  return Intent {
+    .text = "",
+    .intent_name = "",
+    .intent_confidence = 0,
+    .device_name = "",
+    .device_confidence = 0,
+    .trait_value = "",
+    .trait_confidence = 0
+  }
+}
+
+IntentChunkedUploader::~IntentChunkedUploader() {
+  Serial.println("IntentChunkedUploader deleted");
+}
+
+#endif
+
+#ifndef TESTING
 IntentChunkedUploader::IntentChunkedUploader(String accessKey) {
   client = new WiFiClientSecure();
   client->setInsecure();
@@ -70,12 +114,12 @@ Intent IntentChunkedUploader::getResults() {
   }
 
   if (content_length > 0) {
-      char responseBuffer[content_length + 1];  // Buffer to hold the response body
-      int bytesRead = client->readBytes(responseBuffer, content_length);
-      responseBuffer[bytesRead] = '\0';  // Null-terminate the response
+    char responseBuffer[content_length + 1];  // Buffer to hold the response body
+    int bytesRead = client->readBytes(responseBuffer, content_length);
+    responseBuffer[bytesRead] = '\0';  // Null-terminate the response
 
-      responseBody = String(responseBuffer);
-      Serial.println(responseBody);  // Store response body in String
+    responseBody = String(responseBuffer);
+    Serial.println(responseBody);  // Store response body in String
   }
   Serial.println("Http status is " + String(status) + " with content length of " + String(content_length));
   Serial.println(httpResponse);
@@ -121,7 +165,7 @@ Intent IntentChunkedUploader::getResults() {
 
           const char *type = doc["type"];
           //Serial.println(type);
-          if (type && (strcmp(type, "PARTIAL_TRANSLATION") == 0 || strcmp(type, "FULL_TRANSLATION") == 0)){
+          if (type && (strcmp(type, "PARTIAL_TRANSLATION") == 0 || strcmp(type, "FULL_TRANSLATION") == 0)) {
             jsonObject = "";
             continue;
           }
@@ -274,3 +318,4 @@ Intent IntentChunkedUploader::getResults() {
 IntentChunkedUploader::~IntentChunkedUploader() {
   delete client;
 }
+#endif

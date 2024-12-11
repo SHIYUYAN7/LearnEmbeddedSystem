@@ -11,6 +11,8 @@
 #include "time.h"
 #include <esp_task_wdt.h> // watchdog
 #include "IntentChunkedUploader.h"
+#include "FSMTesting.h"
+#define TESTING
 
 
 const char* weatherCertificate = 
@@ -130,25 +132,13 @@ const char* libre_translate_cert = "-----BEGIN CERTIFICATE-----\n"
 #define SAMPLE_RATE   16000
 #define RECORD_TIME   3
 #define ANALYZE_TIME  8000  
-#define WAVE_HEADER_SIZE 44
-#define FILENAME_SIZE 20
 
 
 // time space
 #define ONE_MIN 60000
 #define TEN_MINS 600000
 
-// FSM States
-enum State {
-  STATE_INIT,
-  STATE_STANDBY,
-  STATE_RECORDING,
-  STATE_VOICE_RECOGNITION,
-  STATE_EXECUTE_COMMAND,
-  STATE_UNRECOGNIZED_COMMAND,
-  STATE_RESET,
-  STATE_TRANSLATING
-};
+
 
 // showing screen text structure
 typedef struct {
@@ -175,12 +165,12 @@ std::map<State, std::map<String, String>> stateTranslations = {
 
 // initialization objects
 WiFiClientSecure client;
-const char* ssid = "test";
-const char* pass = "abqnm2002";
+const char* ssid = "";
+const char* pass = "";
 
 volatile unsigned long lastPressTimeRecord = 0; // Last press time for record button
 volatile unsigned long lastPressTimeTrans = 0;  // Last press time for translate button
-volatile bool buttonPressed = false;
+static volatile bool buttonPressed = false;
 
 int lastTimeApiRequest; // track for updating datetime
 int lastCalendarAndTempRequest; // track for updating 
@@ -200,12 +190,12 @@ ShowText currentText = {
 };
 
 // recorder related
-I2SRecord i2sRecorder;
-String access_token = "Bearer DUYP5MQ3OFFSZWFZXBE2VIIB3XHMJRB6";
-IntentChunkedUploader* uploader;
+static I2SRecord i2sRecorder;
+String access_token = "";
+static IntentChunkedUploader* uploader;
 int32_t communicationData[BUFFER_SIZE];
 char partWavData[BUFFER_SIZE];
-String voiceCommand = "null";
+static String voiceCommand = "null";
 
 // translating relatted
 const int ENGLISH = 0, SPANISH = 1, FRENCH = 2;
@@ -309,6 +299,11 @@ unsigned long showScreenMessage() {
 
 void setup() {
   Serial.begin(115200);
+  while (!Serial);
+
+
+  //comment out everything down below for testing
+  //testAllTests();
 
   pinMode(RECORD_BUTTON_PIN, INPUT_PULLUP);
   pinMode(TRANS_BUTTON_PIN, INPUT_PULLUP);
@@ -355,6 +350,7 @@ void setup() {
 }
 
 void loop() {
+  //comment loop out if testing
 
   // pet the dog before the start of each loop to avoid watchdog timeout
   esp_task_wdt_reset();
@@ -553,17 +549,52 @@ void stateVoiceRecognition() {
 
   Intent intent = uploader->getResults();
 
+   #ifdef TESTING
+    if (voiceCommand == "on"){
+      intent = Intent {
+    .text = "",
+    .intent_name = "turn_on_off",
+    .intent_confidence = 0.95,
+    .device_name = "",
+    .device_confidence = 0,
+    .trait_value = "on",
+    .trait_confidence = 0.95
+  }
+  else if (voiceCommand == "off"){
+      intent = Intent {
+    .text = "",
+    .intent_name = "turn_on_off",
+    .intent_confidence = 0.95,
+    .device_name = "",
+    .device_confidence = 0,
+    .trait_value = "off",
+    .trait_confidence = 0.95
+  }
+  if (voiceCommand == "calendar"){
+      intent = Intent {
+    .text = "",
+    .intent_name = "calendar_fetch",
+    .intent_confidence = 0.95,
+    .device_name = "",
+    .device_confidence = 0,
+    .trait_value = "",
+    .trait_confidence = 0
+  }
+    }
+  #endif
+
   delete(uploader);
 
   String intent_name = String(intent.intent_name.c_str());
+ 
   Serial.println("Process intent");
   Serial.println(intent_name);
-  if(intent_name == "turn_on_off" && intent.trait_confidence > 0.95){
+  if(intent_name == "turn_on_off" && intent.trait_confidence >= 0.95){
     //toggleLight(String(intent.trait_value.c_str()));
     voiceCommand = String(intent.trait_value.c_str());
     Serial.println(String(intent.trait_value.c_str()));
   }
-  else if (intent_name == "calendar_fetch" && intent.intent_confidence > 0.95){
+  else if (intent_name == "calendar_fetch" && intent.intent_confidence >= 0.95){
     //fetchCalendar();
     voiceCommand = "calendar";
     Serial.println("calendar");

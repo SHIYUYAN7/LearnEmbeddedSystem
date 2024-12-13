@@ -1,5 +1,6 @@
 #include "I2SRecord.h"
 
+#define TESTING
 
 #ifdef TESTING
 bool I2SRecord::InitInput(i2s_bits_per_sample_t BPS,

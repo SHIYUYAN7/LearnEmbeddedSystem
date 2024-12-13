@@ -1,4 +1,7 @@
 // FSM States
+
+#include <Arduino.h>
+
 typedef enum State {
   STATE_INIT,
   STATE_STANDBY,
@@ -8,4 +11,9 @@ typedef enum State {
   STATE_UNRECOGNIZED_COMMAND,
   STATE_RESET,
   STATE_TRANSLATING
-} state;
+};
+
+State updateFSM(State current, bool buttonPressed);
+
+extern String voiceCommand;
+extern volatile bool recordButtonPressed;

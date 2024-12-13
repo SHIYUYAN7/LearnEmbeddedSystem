@@ -6,13 +6,15 @@
 #include "WiFiClientSecure.h"
 #include <ArduinoJson.h>
 
+#define TESTING
+
 #ifdef TESTING
 // mocked IntentChunkedUploader
 IntentChunkedUploader::IntentChunkedUploader(String accessKey) {
   Serial.println("connected to server");
 }
 
-IntentChunkedUploader::connected() {
+bool IntentChunkedUploader::connected() {
   return true;
 }
 void IntentChunkedUploader::startChunk(int size_in_bytes) {
@@ -36,7 +38,7 @@ Intent IntentChunkedUploader::getResults() {
     .device_confidence = 0,
     .trait_value = "",
     .trait_confidence = 0
-  }
+  };
 }
 
 IntentChunkedUploader::~IntentChunkedUploader() {

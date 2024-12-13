@@ -12,7 +12,7 @@
 #include <esp_task_wdt.h> // watchdog
 #include "IntentChunkedUploader.h"
 #include "FSMTesting.h"
-#define TESTING
+#include "SmartMirrorTests.h"
 
 
 const char* weatherCertificate = 
@@ -132,13 +132,27 @@ const char* libre_translate_cert = "-----BEGIN CERTIFICATE-----\n"
 #define SAMPLE_RATE   16000
 #define RECORD_TIME   3
 #define ANALYZE_TIME  8000  
+#define WAVE_HEADER_SIZE 44
+#define FILENAME_SIZE 20
 
 
 // time space
 #define ONE_MIN 60000
 #define TEN_MINS 600000
 
+#define TESTING
 
+// FSM States
+// enum State {
+//   STATE_INIT,
+//   STATE_STANDBY,
+//   STATE_RECORDING,
+//   STATE_VOICE_RECOGNITION,
+//   STATE_EXECUTE_COMMAND,
+//   STATE_UNRECOGNIZED_COMMAND,
+//   STATE_RESET,
+//   STATE_TRANSLATING
+// };
 
 // showing screen text structure
 typedef struct {
@@ -165,12 +179,12 @@ std::map<State, std::map<String, String>> stateTranslations = {
 
 // initialization objects
 WiFiClientSecure client;
-const char* ssid = "";
-const char* pass = "";
+const char* ssid = "test";
+const char* pass = "abqnm2002";
 
 volatile unsigned long lastPressTimeRecord = 0; // Last press time for record button
 volatile unsigned long lastPressTimeTrans = 0;  // Last press time for translate button
-static volatile bool buttonPressed = false;
+volatile bool recordButtonPressed = false;
 
 int lastTimeApiRequest; // track for updating datetime
 int lastCalendarAndTempRequest; // track for updating 
@@ -190,12 +204,12 @@ ShowText currentText = {
 };
 
 // recorder related
-static I2SRecord i2sRecorder;
-String access_token = "";
-static IntentChunkedUploader* uploader;
+I2SRecord i2sRecorder;
+String access_token = "Bearer DUYP5MQ3OFFSZWFZXBE2VIIB3XHMJRB6";
+IntentChunkedUploader* uploader;
 int32_t communicationData[BUFFER_SIZE];
 char partWavData[BUFFER_SIZE];
-static String voiceCommand = "null";
+String voiceCommand = "null";
 
 // translating relatted
 const int ENGLISH = 0, SPANISH = 1, FRENCH = 2;
@@ -260,6 +274,12 @@ unsigned long showScreenLoading() {
   return micros() - start;
 }
 
+void toggleBuiltInLight(bool on){
+  #ifndef TESTING
+  on ? digitalWrite(LED_BUILTIN, HIGH): digitalWrite(LED_BUILTIN, LOW);
+  #endif
+}
+
 
 // Display a message on screen following your specified format
 unsigned long showScreenMessage() {
@@ -299,81 +319,95 @@ unsigned long showScreenMessage() {
 
 void setup() {
   Serial.begin(115200);
-  while (!Serial);
+  while(!Serial){}
 
 
-  //comment out everything down below for testing
-  //testAllTests();
+  
+  //comment stuff out below for testing
+  Serial.println("begin tests");
+  Serial.println(testAllTests());
+  
+  // pinMode(RECORD_BUTTON_PIN, INPUT_PULLUP);
+  // pinMode(TRANS_BUTTON_PIN, INPUT_PULLUP);
 
-  pinMode(RECORD_BUTTON_PIN, INPUT_PULLUP);
-  pinMode(TRANS_BUTTON_PIN, INPUT_PULLUP);
+  // // Setup button interrupts
+  // attachInterrupt(digitalPinToInterrupt(RECORD_BUTTON_PIN), executeCommandISR, FALLING);
+  // attachInterrupt(digitalPinToInterrupt(TRANS_BUTTON_PIN), onTransButtonPress, FALLING);
 
-  // Setup button interrupts
-  attachInterrupt(digitalPinToInterrupt(RECORD_BUTTON_PIN), executeCommandISR, FALLING);
-  attachInterrupt(digitalPinToInterrupt(TRANS_BUTTON_PIN), onTransButtonPress, FALLING);
+  // ledcAttach(LED_PIN, 5000, 8); // LED channel 0, 5kHz, bit
 
-  ledcAttach(LED_PIN, 5000, 8); // LED channel 0, 5kHz, bit
+  // tft.begin();
+  // showScreenLoading(); // loading all needed information
 
-  tft.begin();
-  showScreenLoading(); // loading all needed information
+  // // // Generate translations dynamically (when comment out, it using the global variable stateTranslations above)
+  // // Serial.println("Start generate translations");
+  // // stateTranslations = generateStateTranslations();
+  // // Serial.println("Generated translations");
 
-  // // Generate translations dynamically (when comment out, it using the global variable stateTranslations above)
-  // Serial.println("Start generate translations");
-  // stateTranslations = generateStateTranslations();
-  // Serial.println("Generated translations");
+  // delay(1000);
 
-  delay(1000);
+  // currentState = STATE_INIT;
 
-  currentState = STATE_INIT;
+  // // Back-initialize the existing WDT first (if it already exists)
+  // esp_task_wdt_deinit();
+  // // initial watchdog for waiting 20S, it will reset after that.
+  // // watchdog struct
+  // esp_task_wdt_config_t wdt_config = {
+  //   .timeout_ms = 20000,              // 20 seconds
+  //   .idle_core_mask = (1 << portNUM_PROCESSORS) - 1, // monitor two cores
+  //   .trigger_panic = false               // reset after 30 seconds
+  // };
 
-  // Back-initialize the existing WDT first (if it already exists)
-  esp_task_wdt_deinit();
-  // initial watchdog for waiting 20S, it will reset after that.
-  // watchdog struct
-  esp_task_wdt_config_t wdt_config = {
-    .timeout_ms = 20000,              // 20 seconds
-    .idle_core_mask = (1 << portNUM_PROCESSORS) - 1, // monitor two cores
-    .trigger_panic = false               // reset after 30 seconds
-  };
-
-  // initial watchdog
-  esp_err_t err = esp_task_wdt_init(&wdt_config);
-  if (err == ESP_OK) {
-    Serial.println("Watchdog initialized successfully!");
-  } else {
-    Serial.print("Watchdog init failed with error: ");
-    Serial.println(err);
-  }
-  // put current process in monitor
-  esp_task_wdt_add(NULL);
-
+  // // initial watchdog
+  // esp_err_t err = esp_task_wdt_init(&wdt_config);
+  // if (err == ESP_OK) {
+  //   Serial.println("Watchdog initialized successfully!");
+  // } else {
+  //   Serial.print("Watchdog init failed with error: ");
+  //   Serial.println(err);
+  // }
+  // // put current process in monitor
+  // esp_task_wdt_add(NULL);
 }
 
-void loop() {
-  //comment loop out if testing
-
-  // pet the dog before the start of each loop to avoid watchdog timeout
+void petWatchDog(){
+  #ifndef TESTING
   esp_task_wdt_reset();
+  #endif
+}
 
-  // fetch the datetime per mins
-  if (millis() - lastTimeApiRequest >= ONE_MIN){
-    currentText.dateTime = printLocalTime();
-    lastTimeApiRequest = millis();
-  }
+// comment out loop content when testing
+void loop() {
 
-  // fetch the calendar and temp per 10 mins
-  if (millis() - lastCalendarAndTempRequest >= TEN_MINS){
-    currentText.temperature = fetchWeather();
-    currentText.eventLists = fetchCalendar();
-    lastCalendarAndTempRequest = millis();
-  }
+//   // pet the dog before the start of each loop to avoid watchdog timeout
+//   esp_task_wdt_reset();
 
-  // update the status message according to the current language
-  currentText.stateStatus = getStateTranslation(currentState, languages[current_language]);
-  Serial.println("Current State " + currentText.stateStatus);
+//   // fetch the datetime per mins
+//   if (millis() - lastTimeApiRequest >= ONE_MIN){
+//     currentText.dateTime = printLocalTime();
+//     lastTimeApiRequest = millis();
+//   }
 
-  // Run the current state logic
-  switch (currentState) {
+//   // fetch the calendar and temp per 10 mins
+//   if (millis() - lastCalendarAndTempRequest >= TEN_MINS){
+//     currentText.temperature = fetchWeather();
+//     currentText.eventLists = fetchCalendar();
+//     lastCalendarAndTempRequest = millis();
+//   }
+
+//   // update the status message according to the current language
+//   currentText.stateStatus = getStateTranslation(currentState, languages[current_language]);
+//   Serial.println("Current State " + currentText.stateStatus);
+
+//   // Run the current state logic
+//   updateFSM(currentState, recordButtonPressed);
+
+//   // pet the dog again before the end of each loop
+//   esp_task_wdt_reset();
+}
+
+State updateFSM(State current, bool buttonPressed){
+switch (current) {
     case STATE_INIT:
       stateInit();
       break;
@@ -381,7 +415,7 @@ void loop() {
       stateStandby();
       break;
     case STATE_RECORDING:
-      stateRecording();
+      stateRecording(buttonPressed);
       break;
     case STATE_VOICE_RECOGNITION:
       stateVoiceRecognition();
@@ -399,9 +433,7 @@ void loop() {
       stateTranslating();
       break;
   }
-
-  // pet the dog again before the end of each loop
-  esp_task_wdt_reset();
+  return currentState;
 }
 
 
@@ -418,7 +450,7 @@ void stateInit() {
   // attempt to connect to Wifi network:
   while (WiFi.status() != WL_CONNECTED) {
     Serial.print(".");
-    esp_task_wdt_reset(); // pet the dog and avoid resetting during wifi connection
+    petWatchDog(); // pet the dog and avoid resetting during wifi connection
     delay(1000);
   }
 
@@ -432,13 +464,13 @@ void stateInit() {
   int attempts = 0;
   while (attempts < MAX_ATTEMPTS) {
 
-    esp_task_wdt_reset(); // pet the dog and avoid resetting during fetch data
+    petWatchDog(); // pet the dog and avoid resetting during fetch data
 
     // Call each function and update the respective variables
     currentText.dateTime = printLocalTime();
     currentText.temperature = fetchWeather();
     //currentText.eventLists = fetchCalendar();
-    esp_task_wdt_reset(); // same
+    petWatchDog(); // same
 
     // Check if all values are valid (not null)
     if (currentText.dateTime != "null" && 
@@ -454,7 +486,7 @@ void stateInit() {
     attempts++;
   }
 
-  esp_task_wdt_reset(); // pet dog
+  petWatchDog(); // pet dog
 
   lastTimeApiRequest = millis();
   lastCalendarAndTempRequest = millis();
@@ -470,7 +502,7 @@ void stateInit() {
   delay(1500);
   currentState = STATE_STANDBY;
 
-  esp_task_wdt_reset(); // pet dog
+  petWatchDog(); // pet dog
 }
 
 void stateStandby() {
@@ -479,7 +511,7 @@ void stateStandby() {
   unsigned long startTime = millis(); // record the start time of mode
   while (millis() - startTime < 60000) { // 60s
 
-    esp_task_wdt_reset(); // pet the dog regularly while waiting interrupt
+    petWatchDog(); // pet the dog regularly while waiting interrupt
 
     // check interrupt
     if (currentState != STATE_STANDBY) { //interrpt happened
@@ -490,32 +522,37 @@ void stateStandby() {
     delay(1); // small delay
   }
 
-  esp_task_wdt_reset(); // pet dog
+  petWatchDog(); // pet dog
 
 }
 
-void stateRecording() {
-
-  if (!buttonPressed) return;
+void stateRecording(bool buttonPressed) {
+  if (!buttonPressed){
+    currentState = STATE_STANDBY;
+    return;
+  } 
   
-  buttonPressed = false;
+  recordButtonPressed = false;
 
   Serial.println("Record Button pressed");
 
-  showScreenMessage();
+  //showScreenMessage();
 
   uploader = new IntentChunkedUploader(access_token);
 
+  Serial.println("uploader init");
   if (!uploader->connected()) {
     Serial.println("uploader not connected");
     return;
   }
+  Serial.println("uploader connected");
+
 
   Serial.println("Listening");
-  digitalWrite(LED_BUILTIN, HIGH);
+  toggleBuiltInLight(true);
   const int waveDataSize = SAMPLE_RATE * RECORD_TIME * 2;
 
-  esp_task_wdt_reset(); // pet dog
+  petWatchDog(); // pet dog
   for (int j = 0; j < waveDataSize / BUFFER_SIZE; j++) {
     auto sz = i2sRecorder.Read((char*)communicationData, BUFFER_SIZE * 4);
     char* p = (char*)(communicationData);
@@ -531,7 +568,7 @@ void stateRecording() {
     uploader->sendChunkData((const uint8_t*)partWavData, BUFFER_SIZE * sizeof(char));
     uploader->finishChunk();
   }
-  digitalWrite(LED_BUILTIN, LOW);
+  toggleBuiltInLight(false);
 
   // unsigned long start_time = millis();
   // Serial.println("get result");
@@ -540,7 +577,7 @@ void stateRecording() {
   //delay(RECORD_TIME); // Simulate recording duration
   currentState = STATE_VOICE_RECOGNITION;
    
-  esp_task_wdt_reset(); // pet dog
+  petWatchDog(); // pet dog
 }
 
 void stateVoiceRecognition() {
@@ -549,47 +586,12 @@ void stateVoiceRecognition() {
 
   Intent intent = uploader->getResults();
 
-   #ifdef TESTING
-    if (voiceCommand == "on"){
-      intent = Intent {
-    .text = "",
-    .intent_name = "turn_on_off",
-    .intent_confidence = 0.95,
-    .device_name = "",
-    .device_confidence = 0,
-    .trait_value = "on",
-    .trait_confidence = 0.95
-  }
-  else if (voiceCommand == "off"){
-      intent = Intent {
-    .text = "",
-    .intent_name = "turn_on_off",
-    .intent_confidence = 0.95,
-    .device_name = "",
-    .device_confidence = 0,
-    .trait_value = "off",
-    .trait_confidence = 0.95
-  }
-  if (voiceCommand == "calendar"){
-      intent = Intent {
-    .text = "",
-    .intent_name = "calendar_fetch",
-    .intent_confidence = 0.95,
-    .device_name = "",
-    .device_confidence = 0,
-    .trait_value = "",
-    .trait_confidence = 0
-  }
-    }
-  #endif
-
   delete(uploader);
 
   String intent_name = String(intent.intent_name.c_str());
- 
   Serial.println("Process intent");
   Serial.println(intent_name);
-  if(intent_name == "turn_on_off" && intent.trait_confidence >= 0.95){
+  if(intent_name == "turn_on_off" && intent.trait_confidence > 0.95){
     //toggleLight(String(intent.trait_value.c_str()));
     voiceCommand = String(intent.trait_value.c_str());
     Serial.println(String(intent.trait_value.c_str()));
@@ -605,7 +607,7 @@ void stateVoiceRecognition() {
     currentState = STATE_UNRECOGNIZED_COMMAND;
   }
 
-  esp_task_wdt_reset(); // pet dog
+  petWatchDog(); // pet dog
 }
 
 void stateExecuteCommand() {
@@ -617,7 +619,7 @@ void stateExecuteCommand() {
     for(int dutyCycle = 0; dutyCycle <= 255; dutyCycle++){   
       // changing the LED brightness with PWM
       ledcWrite(LED_PIN, dutyCycle);
-      esp_task_wdt_reset(); // pet dog
+      petWatchDog(); // pet dog
       delay(15);
     }
   }
@@ -626,12 +628,12 @@ void stateExecuteCommand() {
     for(int dutyCycle = 255; dutyCycle >= 0; dutyCycle--){
       // changing the LED brightness with PWM
       ledcWrite(LED_PIN, dutyCycle);   
-      esp_task_wdt_reset(); // pet dog
+      petWatchDog(); // pet dog
       delay(15);
     }
   }
 
-  esp_task_wdt_reset(); //pet dog
+  petWatchDog(); //pet dog
 
   if (voiceCommand == "calendar") {
     currentText.eventLists = fetchCalendar();
@@ -640,7 +642,7 @@ void stateExecuteCommand() {
 
   currentState = STATE_STANDBY;
 
-  esp_task_wdt_reset(); //pet dog
+  petWatchDog(); //pet dog
 }
 
 void stateUnrecognizedCommand() {
@@ -649,7 +651,7 @@ void stateUnrecognizedCommand() {
   delay(2000);
   currentState = STATE_STANDBY;
 
-  esp_task_wdt_reset(); // pet dog
+  petWatchDog(); // pet dog
 }
 
 void stateReset() {
@@ -658,7 +660,7 @@ void stateReset() {
   delay(2000);
   currentState = STATE_INIT;
   
-  esp_task_wdt_reset(); // pet dog
+  petWatchDog(); // pet dog
 }
 
 void stateTranslating() {
@@ -669,14 +671,14 @@ void stateTranslating() {
   String source_language, target_language;
   getNextLanguagePair(source_language, target_language);
   
-  esp_task_wdt_reset(); // Pet the dog to avoid blocking translation calls for too long
+  petWatchDog(); // Pet the dog to avoid blocking translation calls for too long
   currentText.stateStatus = translateText(currentText.stateStatus, source_language, target_language);
 
   // do not need to translate calendar if it's not showing
   if (!currentText.eventLists.empty()){
-    esp_task_wdt_reset(); // same reason
+    petWatchDog(); // same reason
     currentText.eventLists = translateTextList(currentText.eventLists, source_language, target_language);
-    esp_task_wdt_reset(); // same reason
+    petWatchDog(); // same reason
 
     if(currentText.stateStatus == "Connection Failed!" || currentText.eventLists.empty()){
       currentState = STATE_RESET;
@@ -695,7 +697,7 @@ void stateTranslating() {
   }
 
 
-  esp_task_wdt_reset();
+  petWatchDog();
   
 }
 
@@ -1099,11 +1101,6 @@ String toUpperCase(String input) {
     return input;
 }
 
-// ISR to change the state
-void IRAM_ATTR onRecordButtonPress() {
-    currentState = STATE_RECORDING;
-}
-
 void IRAM_ATTR onTransButtonPress() {
     currentState = STATE_TRANSLATING;
 }
@@ -1113,11 +1110,10 @@ void executeCommandISR() {
   unsigned long interrupt_time = millis();
 
   if (interrupt_time - last_interrupt_time > 200){
-  buttonPressed = true; 
+  recordButtonPressed = true; 
   }
   last_interrupt_time = interrupt_time;
   
   currentState = STATE_RECORDING;
 }
-
 

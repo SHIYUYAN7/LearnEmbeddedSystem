@@ -81,17 +81,17 @@ bool testTransition(State startState,
   }
 }
 
-const State testStatesIn[23] = {(State) 2, (State) 2};
+const State testStatesIn[23] = {(State) 2, (State) 2, (State) 3, (State) 3, (State) 3, (State) 3};
 
-const State testStatesOut[23] = {(State) 1, (State) 3};
+const State testStatesOut[23] = {(State) 1, (State) 3, (State) 4, (State) 4, (State) 4, (State) 5};
 
-const state_inputs testInputs[23] = {{false}, {true},{}};
+const state_inputs testInputs[23] = {{false}, {true},{false}, {false}, {false}, {false}};
 
-const state_vars testVarsIn[23] = {{""}, {""}, {"on"}, {"off"}, {"calender"}};
+const state_vars testVarsIn[23] = {{""}, {""}, {"on"}, {"off"}, {"calendar"}, {"unrecognized"}};
 
-const state_vars testVarsOut[23] = {{""}, {""}, {"on"},  {"off"}, {"calendar"}};
+const state_vars testVarsOut[23] = {{""}, {""}, {"on"},  {"off"}, {"calendar"}, {"unrecognized"}};
 
-const int numTests = 2;
+const int numTests = 5;
 
 bool testAllTests() {
   for (int i = 0; i < numTests; i++) {

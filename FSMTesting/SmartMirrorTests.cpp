@@ -81,17 +81,17 @@ bool testTransition(State startState,
   }
 }
 
-const State testStatesIn[23] = {(State) 2, (State) 2, (State) 3, (State) 3, (State) 3, (State) 3};
+const State testStatesIn[23] = {(State) 2, (State) 2, (State) 3, (State) 3, (State) 3, (State) 3, (State) 4, (State) 4, (State) 5 /*(State) 4*/};
 
-const State testStatesOut[23] = {(State) 1, (State) 3, (State) 4, (State) 4, (State) 4, (State) 5};
+const State testStatesOut[23] = {(State) 1, (State) 3, (State) 4, (State) 4, (State) 4, (State) 5, (State) 1, (State) 1, (State) 1 /*(State) 1*/};
 
-const state_inputs testInputs[23] = {{false}, {true},{false}, {false}, {false}, {false}};
+const state_inputs testInputs[23] = {{false}, {true}, {false}, {false}, {false}, {false}, {false}, {"false"}, {false} /*{"false"}*/};
 
-const state_vars testVarsIn[23] = {{""}, {""}, {"on"}, {"off"}, {"calendar"}, {"unrecognized"}};
+const state_vars testVarsIn[23] = {{""}, {""}, {"on"}, {"off"}, {"calendar"}, {"unrecognized"}, {"on"}, {"off"}, {""} /*{"calendar"}*/};
 
-const state_vars testVarsOut[23] = {{""}, {""}, {"on"},  {"off"}, {"calendar"}, {"unrecognized"}};
+const state_vars testVarsOut[23] = {{""}, {""}, {"on"}, {"off"}, {"calendar"}, {"unrecognized"}, {"on"}, {"off"}, {""} /*{"calendar"}*/};
 
-const int numTests = 5;
+const int numTests = 9;
 
 bool testAllTests() {
   for (int i = 0; i < numTests; i++) {

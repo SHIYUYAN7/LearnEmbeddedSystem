@@ -331,7 +331,7 @@ void setup() {
 
   //comment stuff out below for testing
   Serial.println("begin tests");
-  Serial.println(testAllTests());
+  testAllTests();
 
   // pinMode(RECORD_BUTTON_PIN, INPUT_PULLUP);
   // pinMode(TRANS_BUTTON_PIN, INPUT_PULLUP);
@@ -661,14 +661,20 @@ void stateVoiceRecognition() {
 
     if (voiceCommand == "on") {
       // increase the LED brightness
+      #ifndef TESTING
       for (int dutyCycle = 0; dutyCycle <= 255; dutyCycle++) {
         // changing the LED brightness with PWM
         ledcWrite(LED_PIN, dutyCycle);
         petWatchDog();  // pet dog
         delay(15);
       }
+      #endif
+      #ifdef TESTING
+      Serial.println("light on");
+      #endif TESTING
     }
     if (voiceCommand == "off") {
+      #ifndef TESTING
       // decrease the LED brightness
       for (int dutyCycle = 255; dutyCycle >= 0; dutyCycle--) {
         // changing the LED brightness with PWM
@@ -676,11 +682,17 @@ void stateVoiceRecognition() {
         petWatchDog();  // pet dog
         delay(15);
       }
+      #endif
+      #ifdef TESTING
+      Serial.println("light off");
+      #endif
+
     }
 
     petWatchDog();  //pet dog
 
     if (voiceCommand == "calendar") {
+      // need to be mocked
       currentText.eventLists = fetchCalendar();
       currentText.eventLists = translateTextList(currentText.eventLists, "en", languages[current_language]);
     }

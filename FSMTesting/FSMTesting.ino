@@ -179,8 +179,8 @@ std::map<State, std::map<String, String>> stateTranslations = {
 
 // initialization objects
 WiFiClientSecure client;
-const char* ssid = "test";
-const char* pass = "abqnm2002";
+const char* ssid = "";
+const char* pass = "";
 
 volatile unsigned long lastPressTimeRecord = 0;  // Last press time for record button
 volatile unsigned long lastPressTimeTrans = 0;   // Last press time for translate button
@@ -205,7 +205,7 @@ ShowText currentText = {
 
 // recorder related
 I2SRecord i2sRecorder;
-String access_token = "Bearer DUYP5MQ3OFFSZWFZXBE2VIIB3XHMJRB6";
+String access_token = "";
 IntentChunkedUploader* uploader;
 int32_t communicationData[BUFFER_SIZE];
 char partWavData[BUFFER_SIZE];

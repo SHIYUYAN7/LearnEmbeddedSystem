@@ -1,6 +1,6 @@
 #include <ArduinoJson.h>
-#include <WiFiS3.h>
-#include "WiFiSSLClient.h"
+#include <WiFi.h>
+#include "WiFiClientSecure.h"
 
 // Your WiFi credentials
 char* ssid = "Brown-Guest";         
@@ -11,7 +11,7 @@ String api_key = "49c4aa23-b141-4967-acc4-3352a7c61a30";
 int status = WL_IDLE_STATUS;
 
 // WiFiClient instance for making HTTP requests
-WiFiSSLClient client;
+WiFiClientSecure client;
 
 void setup() {
   // Start serial communication for debugging
@@ -21,7 +21,7 @@ void setup() {
   delay(1000);
 
   // attempt to connect to WiFi network:
-  while (status != WL_CONNECTED) {
+  while (WiFi.status() != WL_CONNECTED) {
     // Connect to WPA/WPA2 network:
     Serial.println("Attempting to connect to WPA SSID: " + String(ssid));
     status = WiFi.begin(ssid);
